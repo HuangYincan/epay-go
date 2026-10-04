@@ -41,16 +41,15 @@ docker compose up -d --build
 - `backend`
 - `frontend`
 
-默认端口：
+默认只发布宿主机回环端口，公网访问需配置反向代理或隧道：
 
-- `80`：前端
-- `8080`：后端
-- `5432`：PostgreSQL
-- `6379`：Redis
+- `127.0.0.1:8081`：前端（容器内 Nginx 同时代理支付 API）
+- `127.0.0.1:8080`：后端
+- PostgreSQL、Redis 只在 Compose 网络内访问，不发布宿主机端口
 
 ### 常用访问入口
 
-部署完成后，可直接访问以下前端路径：
+本机访问 `http://127.0.0.1:8081`，或通过配置好的公网域名访问以下前端路径：
 
 - **管理员登录**：`/admin/login`
 - **商户注册**：`/merchant/register`
@@ -156,4 +155,22 @@ NPM_REGISTRY=https://registry.npmmirror.com
 
 > 注意：`web/package-lock.json` 里的依赖下载地址（`resolved`）会被写死，若该文件在配了内网镜像（如腾讯云内网 `mirrors.tencentyun.com`）的机器上重新生成，会导致其他环境 `npm ci` 因地址不可达而失败。重新生成锁文件时请确保使用公网可达的镜像。
 
+## 支付入账回归测试
+
+订单入账使用 PostgreSQL 行锁和单一事务，保证重复回调与主动查单同时触发时只入账一次；订单状态、商户余额和资金流水一起提交或回滚。同一商户多笔订单的流水使用锁定后的余额，并全程保留 decimal 精度。
+
+运行普通测试：
+
+```bash
+go test ./...
+```
+
+并发和回滚测试需要独立的 PostgreSQL 测试数据库。设置连接后运行（未设置时这些集成测试会跳过）：
+
+```bash
+EPAY_TEST_DATABASE_DSN='host=127.0.0.1 port=5432 user=epay_test password=test-only dbname=epay_test sslmode=disable' \
+  go test -race ./...
+```
+
+测试用户需要创建 schema 的权限。每个测试创建并清理自己的 schema，不读取已有业务表。GitHub Actions 使用 PostgreSQL 16 自动执行这些测试、静态检查和后端构建。
 
