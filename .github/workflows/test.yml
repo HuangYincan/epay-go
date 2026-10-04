@@ -1,0 +1,41 @@
+name: Backend tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: epay_test
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: epay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U epay_test -d epay_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      EPAY_TEST_DATABASE_DSN: host=127.0.0.1 port=5432 user=epay_test password=test-only dbname=epay_test sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test with race detector and PostgreSQL
+        run: go test -race ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build backend
+        run: go build -o /tmp/epay-server ./cmd/server

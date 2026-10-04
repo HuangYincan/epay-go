@@ -204,7 +204,7 @@ func (s *RefundService) ProcessRefund(refundNo string, success bool, failReason 
 			return err
 		}
 
-		if err := s.merchantRepo.UpdateBalance(tx, merchant.ID, amount.Neg().InexactFloat64()); err != nil {
+		if err := s.merchantRepo.UpdateBalance(tx, merchant.ID, amount.Neg()); err != nil {
 			tx.Rollback()
 			return err
 		}

@@ -8,6 +8,7 @@ import (
 	"github.com/example/epay-go/internal/model"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type OrderRepository struct {
@@ -39,6 +40,16 @@ func (r *OrderRepository) GetByTradeNo(tradeNo string) (*model.Order, error) {
 	err := r.db.Preload("Merchant").Preload("Channel").
 		Where("trade_no = ?", tradeNo).First(&order).Error
 	if err != nil {
+		return nil, err
+	}
+	return &order, nil
+}
+
+// GetByTradeNoForUpdate 在支付事务内锁定订单；关联信息由调用方按需查询。
+func (r *OrderRepository) GetByTradeNoForUpdate(tx *gorm.DB, tradeNo string) (*model.Order, error) {
+	var order model.Order
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("trade_no = ?", tradeNo).First(&order).Error; err != nil {
 		return nil, err
 	}
 	return &order, nil
@@ -82,10 +93,10 @@ func (r *OrderRepository) UpdateNotifyStatus(tradeNo string, status int8, nextNo
 	return r.db.Model(&model.Order{}).Where("trade_no = ?", tradeNo).Updates(updates).Error
 }
 
-// UpdatePayInfo 更新支付信息
-func (r *OrderRepository) UpdatePayInfo(tradeNo, apiTradeNo, buyer string) error {
+// UpdatePayInfo 在调用方的事务内更新支付信息。
+func (r *OrderRepository) UpdatePayInfo(tx *gorm.DB, tradeNo, apiTradeNo, buyer string) error {
 	now := time.Now()
-	return r.db.Model(&model.Order{}).Where("trade_no = ?", tradeNo).Updates(map[string]interface{}{
+	return tx.Model(&model.Order{}).Where("trade_no = ?", tradeNo).Updates(map[string]interface{}{
 		"api_trade_no": apiTradeNo,
 		"buyer":        buyer,
 		"status":       model.OrderStatusPaid,
