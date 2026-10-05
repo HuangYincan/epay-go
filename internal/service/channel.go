@@ -42,6 +42,9 @@ type CreateChannelRequest struct {
 
 // Create 创建通道
 func (s *ChannelService) Create(req *CreateChannelRequest) (*model.Channel, error) {
+	if req.Status != 0 && req.Status != 1 {
+		return nil, fmt.Errorf("通道状态无效")
+	}
 	if err := validateChannel(req.Plugin, req.AppType, req.CallbackURL, req.Rate, req.DailyLimit); err != nil {
 		return nil, err
 	}

@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 // ListOrders 订单列表
 func ListOrders(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -70,7 +69,7 @@ func RenotifyOrder(c *gin.Context) {
 		return
 	}
 
-	if err := notifyService.SendNotify(order); err != nil {
+	if err := notifyService.ResendNotify(order); err != nil {
 		response.ServerError(c, "发送通知失败: "+err.Error())
 		return
 	}

@@ -99,6 +99,13 @@
               :rows="4"
             />
 
+            <a-switch
+              v-else-if="field.type === 'boolean'"
+              v-model="form.config[field.key]"
+              checked-text="生产"
+              unchecked-text="沙箱"
+            />
+
             <!-- 下拉选择 -->
             <a-select
               v-else-if="field.type === 'select'"
@@ -212,7 +219,7 @@ const defaultForm = {
   daily_limit: 0,
   sort: 0,
   status: 1,
-  config: {} as Record<string, string>,
+  config: {} as Record<string, any>,
 }
 
 const form = reactive({ ...defaultForm })
@@ -253,6 +260,9 @@ const handlePluginChange = async (plugin: string) => {
 
     // 重置配置
     form.config = {}
+    for (const field of res.data.inputs) {
+      if (field.type === 'boolean') form.config[field.key] = false
+    }
     form.app_types = []
   } catch (e) {
     Message.error('加载插件配置失败')
@@ -289,7 +299,12 @@ const handleEdit = async (record: Channel) => {
   form.daily_limit = Number(record.daily_limit)
   form.sort = record.sort
   form.status = record.status
-  form.config = typeof record.config === 'object' ? record.config : {}
+  form.config = record.config && typeof record.config === 'object' ? { ...record.config } : {}
+  for (const field of currentPluginConfig.value.inputs) {
+    if (field.type === 'boolean') {
+      form.config[field.key] = form.config[field.key] === true || form.config[field.key] === 'true'
+    }
+  }
 
   modalVisible.value = true
 }

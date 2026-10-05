@@ -21,7 +21,7 @@ func HandleNotify(c *gin.Context) {
 		return
 	}
 	var channels []model.Channel
-	query := database.Get().Where("plugin = ?", plugin)
+	query := database.Get().Unscoped().Where("plugin = ?", plugin)
 	if value := c.Param("channel_id"); value != "" {
 		id, err := strconv.ParseInt(value, 10, 64)
 		if err != nil || id <= 0 {

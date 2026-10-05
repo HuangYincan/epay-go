@@ -37,7 +37,7 @@ func (r *OrderRepository) GetByID(id int64) (*model.Order, error) {
 // GetByTradeNo 根据系统订单号获取订单
 func (r *OrderRepository) GetByTradeNo(tradeNo string) (*model.Order, error) {
 	var order model.Order
-	err := r.db.Preload("Merchant").Preload("Channel").
+	err := r.db.Preload("Merchant").Preload("Channel", func(db *gorm.DB) *gorm.DB { return db.Unscoped() }).
 		Where("trade_no = ?", tradeNo).First(&order).Error
 	if err != nil {
 		return nil, err
@@ -81,16 +81,41 @@ func (r *OrderRepository) UpdateStatus(tradeNo string, status int8) error {
 	return r.db.Model(&model.Order{}).Where("trade_no = ?", tradeNo).Updates(updates).Error
 }
 
-// UpdateNotifyStatus 更新通知状态
-func (r *OrderRepository) UpdateNotifyStatus(tradeNo string, status int8, nextNotifyAt *time.Time) error {
-	updates := map[string]interface{}{
-		"notify_status": status,
-		"notify_count":  gorm.Expr("notify_count + 1"),
-	}
-	if nextNotifyAt != nil {
-		updates["next_notify_at"] = nextNotifyAt
-	}
-	return r.db.Model(&model.Order{}).Where("trade_no = ?", tradeNo).Updates(updates).Error
+// ClaimNotify serializes delivery across callbacks, workers and app instances.
+// An expired lease can be reclaimed after a crash; only its current owner may finish.
+func (r *OrderRepository) ClaimNotify(tradeNo, token string, now, leaseUntil time.Time, force bool) (*model.Order, error) {
+	var claimed *model.Order
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		order, err := r.GetByTradeNoForUpdate(tx, tradeNo)
+		if err != nil {
+			return err
+		}
+		if order.Status != model.OrderStatusPaid || (!force && order.NotifyStatus >= model.NotifyStatusSuccess) ||
+			(!force && order.NextNotifyAt != nil && order.NextNotifyAt.After(now)) ||
+			(order.NotifyLeaseUntil != nil && order.NotifyLeaseUntil.After(now)) {
+			return nil
+		}
+		count := order.NotifyCount + 1
+		if force {
+			count = 1 // An explicit admin resend starts a new delivery cycle.
+		}
+		if err := tx.Model(order).Updates(map[string]any{
+			"notify_status": model.NotifyStatusSending, "notify_count": count,
+			"notify_lease_until": leaseUntil, "notify_lease_token": token, "next_notify_at": nil,
+		}).Error; err != nil {
+			return err
+		}
+		claimed = order
+		return nil
+	})
+	return claimed, err
+}
+
+func (r *OrderRepository) FinishNotify(tradeNo, token string, status int8, nextNotifyAt *time.Time) error {
+	return r.db.Model(&model.Order{}).
+		Where("trade_no = ? AND notify_status = ? AND notify_lease_token = ?", tradeNo, model.NotifyStatusSending, token).
+		Updates(map[string]any{"notify_status": status, "next_notify_at": nextNotifyAt,
+			"notify_lease_until": nil, "notify_lease_token": ""}).Error
 }
 
 // UpdatePayInfo 在调用方的事务内更新支付信息。
@@ -137,6 +162,7 @@ func (r *OrderRepository) GetPendingNotifyOrders(limit int) ([]model.Order, erro
 	var orders []model.Order
 	err := r.db.Where("status = ? AND notify_status < ? AND (next_notify_at IS NULL OR next_notify_at <= ?)",
 		model.OrderStatusPaid, model.NotifyStatusSuccess, time.Now()).
+		Where("notify_lease_until IS NULL OR notify_lease_until <= ?", time.Now()).
 		Limit(limit).Find(&orders).Error
 	return orders, err
 }
@@ -151,14 +177,16 @@ func (r *OrderRepository) GetPendingQueryOrders(limit int) ([]model.Order, error
 }
 
 // UpdateQueryStatus 更新主动查询进度
-func (r *OrderRepository) UpdateQueryStatus(tradeNo string, nextQueryAt *time.Time) error {
+func (r *OrderRepository) UpdateQueryStatus(tradeNo string, nextQueryAt *time.Time, expectedCount int) error {
 	updates := map[string]interface{}{"query_count": gorm.Expr("query_count + 1")}
 	if nextQueryAt != nil {
 		updates["next_query_at"] = nextQueryAt
 	} else {
 		updates["next_query_at"] = gorm.Expr("NULL")
 	}
-	return r.db.Model(&model.Order{}).Where("trade_no = ?", tradeNo).Updates(updates).Error
+	// A stale worker must not clear the schedule restarted by an H5 refresh,
+	// or advance the same attempt twice across application instances.
+	return r.db.Model(&model.Order{}).Where("trade_no = ? AND query_count = ?", tradeNo, expectedCount).Updates(updates).Error
 }
 
 // GetTodayStats 获取今日统计

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -430,4 +431,58 @@ func TestHuifuRefundAcceptedPending(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHuifuCrossDayOrderIdentity(t *testing.T) {
+	priv, pub := genPEMPair(t)
+	cfg, _ := json.Marshal(HuifuConfig{SysID: "fixture", ProductID: "fixture", HuifuID: "fixture", MerchantPrivateKey: priv, HuifuPublicKey: pub})
+	adapter, err := NewHuifuWechatAdapter(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := adapter.(*HuifuAdapter)
+	var createdDate, queriedDate string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var e struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
+			t.Error(err)
+			return
+		}
+		var data map[string]any
+		if err := json.Unmarshal(e.Data, &data); err != nil {
+			t.Error(err)
+			return
+		}
+		result := map[string]string{"resp_code": "00000000"}
+		if strings.Contains(r.URL.Path, "jspay") {
+			createdDate = data["req_date"].(string)
+			result["qr_code"] = "weixin://fixture"
+		} else {
+			queriedDate = data["org_req_date"].(string)
+			result["trans_stat"] = "S"
+			result["trans_amt"] = "1.00"
+		}
+		raw, _ := json.Marshal(result)
+		sign, err := h.sign(raw)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": json.RawMessage(raw), "sign": sign})
+	}))
+	defer server.Close()
+	h.baseURL = server.URL
+	no := time.Now().Add(-24*time.Hour).Format("20060102150405") + "1234567890"
+	if _, err := h.CreateOrder(context.Background(), &CreateOrderRequest{TradeNo: no, Amount: decimal.NewFromInt(1), Subject: "fixture", PayMethod: "native"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.QueryOrder(context.Background(), no); err != nil {
+		t.Fatal(err)
+	}
+	if createdDate != no[:8] || queriedDate != no[:8] {
+		t.Fatalf("original order date changed: create=%s query=%s want=%s", createdDate, queriedDate, no[:8])
+	}
+	t.Logf("same trade_no=%s created req_date=%s queried org_req_date=%s", no, createdDate, queriedDate)
 }
