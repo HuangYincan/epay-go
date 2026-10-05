@@ -62,8 +62,8 @@ func (r *MerchantRepository) GetByAPIKey(apiKey string) (*model.Merchant, error)
 }
 
 // Update 更新商户
-func (r *MerchantRepository) Update(merchant *model.Merchant) error {
-	return r.db.Save(merchant).Error
+func (r *MerchantRepository) UpdateFields(id int64, fields map[string]interface{}) error {
+	return r.db.Model(&model.Merchant{}).Where("id = ?", id).Updates(fields).Error
 }
 
 // UpdateBalance 更新余额 (使用事务)

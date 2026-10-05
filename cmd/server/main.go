@@ -41,6 +41,12 @@ func main() {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
+	if len(os.Args) > 1 {
+		if len(os.Args) == 2 && os.Args[1] == "migrate" {
+			return
+		}
+		log.Fatal("unknown command; supported: migrate")
+	}
 	// 初始化 Redis
 	if err := cache.Init(); err != nil {
 		log.Fatalf("Failed to init redis: %v", err)
@@ -50,7 +56,7 @@ func main() {
 	// 初始化默认管理员
 	adminService := service.NewAdminService()
 	if err := adminService.InitDefaultAdmin(); err != nil {
-		log.Printf("Failed to init default admin: %v", err)
+		log.Fatalf("Failed to init default admin: %v", err)
 	}
 
 	// 设置 Gin 模式
@@ -82,12 +88,17 @@ func main() {
 	// 启动订单主动查单补偿工作协程
 	orderQueryService := service.NewOrderQueryService()
 	go orderQueryService.StartQueryWorker(ctx)
+	go service.NewRefundService().StartWorker(ctx)
 
 	// 创建 HTTP 服务器
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: r,
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// 在 goroutine 中启动服务器

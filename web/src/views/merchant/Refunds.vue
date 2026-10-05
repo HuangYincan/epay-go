@@ -13,6 +13,7 @@
             <a-option :value="0">待处理</a-option>
             <a-option :value="1">成功</a-option>
             <a-option :value="2">失败</a-option>
+            <a-option :value="3">处理中</a-option>
           </a-select>
         </a-form-item>
         <a-form-item>
@@ -22,20 +23,18 @@
       </a-form>
 
       <!-- 退款列表 -->
-      <a-table
-        :columns="columns"
-        :data-source="refunds"
-        :loading="loading"
-        :pagination="pagination"
-        @change="handleTableChange"
-        row-key="id"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'status'">
-            <a-tag v-if="record.status === 0" color="orange">待处理</a-tag>
-            <a-tag v-else-if="record.status === 1" color="green">成功</a-tag>
-            <a-tag v-else-if="record.status === 2" color="red">失败</a-tag>
-          </template>
+      <a-table :data="refunds" :loading="loading" :pagination="pagination" @page-change="handlePageChange" @page-size-change="handlePageSizeChange" row-key="id">
+        <template #columns>
+          <a-table-column title="退款单号" data-index="refund_no" />
+          <a-table-column title="订单号" data-index="trade_no" />
+          <a-table-column title="退款金额" data-index="amount" />
+          <a-table-column title="退款原因" data-index="reason" />
+          <a-table-column title="状态">
+            <template #cell="{ record }"><a-tag>{{ ['待处理', '成功', '失败', '处理中'][record.status] || '未知' }}</a-tag></template>
+          </a-table-column>
+          <a-table-column title="失败原因" data-index="fail_reason" />
+          <a-table-column title="处理时间" data-index="processed_at" />
+          <a-table-column title="创建时间" data-index="created_at" />
         </template>
       </a-table>
     </a-card>
@@ -46,7 +45,7 @@
       title="申请退款"
       @ok="handleCreateConfirm"
       @cancel="createVisible = false"
-      :confirm-loading="submitting"
+      :ok-loading="submitting"
     >
       <a-form :model="createForm" layout="vertical">
         <a-form-item label="订单号" required>
@@ -107,20 +106,9 @@ const pagination = reactive({
   current: 1,
   pageSize: 20,
   total: 0,
-  showSizeChanger: true,
-  showTotal: (total: number) => `共 ${total} 条`
+  showPageSize: true,
+  showTotal: true
 })
-
-const columns = [
-  { title: '退款单号', dataIndex: 'refund_no', key: 'refund_no' },
-  { title: '订单号', dataIndex: 'trade_no', key: 'trade_no' },
-  { title: '退款金额', dataIndex: 'amount', key: 'amount' },
-  { title: '退款原因', dataIndex: 'reason', key: 'reason', ellipsis: true },
-  { title: '状态', key: 'status' },
-  { title: '失败原因', dataIndex: 'fail_reason', key: 'fail_reason', ellipsis: true },
-  { title: '处理时间', dataIndex: 'processed_at', key: 'processed_at' },
-  { title: '创建时间', dataIndex: 'created_at', key: 'created_at' }
-]
 
 const fetchRefunds = async () => {
   loading.value = true
@@ -158,9 +146,13 @@ const handleReset = () => {
   fetchRefunds()
 }
 
-const handleTableChange = (pag: any) => {
-  pagination.current = pag.current
-  pagination.pageSize = pag.pageSize
+const handlePageChange = (page: number) => {
+  pagination.current = page
+  fetchRefunds()
+}
+const handlePageSizeChange = (size: number) => {
+  pagination.pageSize = size
+  pagination.current = 1
   fetchRefunds()
 }
 

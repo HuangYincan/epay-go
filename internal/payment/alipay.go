@@ -122,7 +122,7 @@ func (a *AlipayAdapter) CreateOrder(ctx context.Context, req *CreateOrderRequest
 			PayURL:  payURL,
 		}, nil
 
-	case "web", "pc":
+	case "web", "pc", "page":
 		// PC网页支付
 		bm.Set("product_code", "FAST_INSTANT_TRADE_PAY")
 		bm.Set("return_url", req.ReturnURL)
@@ -188,6 +188,9 @@ func (a *AlipayAdapter) Refund(ctx context.Context, req *RefundRequest) (*Refund
 		return nil, err
 	}
 
+	if resp.Response.Code == "20000" || resp.Response.SubCode == "ACQ.SYSTEM_ERROR" {
+		return nil, errors.New(resp.Response.SubMsg)
+	}
 	if resp.Response.Code != "10000" {
 		return &RefundResponse{
 			RefundNo:     req.RefundNo,
@@ -218,6 +221,9 @@ func (a *AlipayAdapter) ParseNotify(ctx context.Context, r *http.Request) (*Noti
 	if !ok {
 		return nil, errors.New("签名验证失败")
 	}
+	if notifyReq.Get("app_id") != a.config.AppID {
+		return nil, errors.New("支付宝通知应用不匹配")
+	}
 
 	tradeStatus := notifyReq.Get("trade_status")
 	status := "fail"
@@ -243,4 +249,35 @@ func (a *AlipayAdapter) NotifySuccess() string {
 
 func init() {
 	Register("alipay", NewAlipayAdapter)
+}
+
+func (a *AlipayAdapter) QueryRefund(ctx context.Context, req *RefundRequest) (*RefundResponse, error) {
+	bm := make(gopay.BodyMap)
+	bm.Set("out_trade_no", req.TradeNo)
+	bm.Set("out_request_no", req.RefundNo)
+	resp, err := a.client.TradeFastPayRefundQuery(ctx, bm)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Response.Code != "10000" {
+		if resp.Response.SubCode == "ACQ.TRADE_NOT_EXIST" {
+			return &RefundResponse{Status: "not_found"}, nil
+		}
+		return nil, errors.New(resp.Response.SubMsg)
+	}
+	// Official API: absent refund_status means request not received or not successful.
+	// Reissue only with the same out_request_no and amount after the worker delay.
+	status := "not_found"
+	if resp.Response.RefundStatus == "REFUND_SUCCESS" {
+		status = "success"
+	}
+	amount := decimal.Zero
+	if status == "success" {
+		var err error
+		amount, err = decimal.NewFromString(resp.Response.RefundAmount)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &RefundResponse{RefundNo: req.RefundNo, ApiRefundNo: resp.Response.TradeNo, Status: status, Amount: amount}, nil
 }

@@ -15,20 +15,15 @@ fi
 
 # 构建镜像
 echo "构建 Docker 镜像..."
-docker-compose build
+docker compose build
 
 # 启动服务
 echo "启动服务..."
-docker-compose up -d
 
-# 等待数据库就绪
-echo "等待数据库就绪..."
-sleep 10
-
-# 运行数据库迁移
-echo "运行数据库迁移..."
-docker-compose exec backend ./epay-server migrate
+# 后端启动时自动迁移；等待实际健康状态。
+echo "等待服务就绪..."
+docker compose up -d --wait --wait-timeout 120
 
 echo "=== 部署完成 ==="
-echo "前端访问: http://localhost"
+echo "前端访问: http://localhost:8081"
 echo "后端 API: http://localhost:8080"

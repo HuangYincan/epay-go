@@ -18,6 +18,10 @@
           <template #icon><icon-file /></template>
           订单管理
         </a-menu-item>
+        <a-menu-item key="refunds">
+          <template #icon><icon-undo /></template>
+          退款管理
+        </a-menu-item>
         <a-menu-item key="settlements">
           <template #icon><icon-swap /></template>
           结算管理

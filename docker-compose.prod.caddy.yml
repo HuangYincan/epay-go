@@ -62,7 +62,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - JWT_SECRET=${JWT_SECRET:-your-secret-key}
+      - JWT_SECRET=${JWT_SECRET:?Set a random JWT_SECRET in .env}
       - GIN_MODE=release
     depends_on:
       postgres:

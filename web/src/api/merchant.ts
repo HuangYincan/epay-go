@@ -81,6 +81,6 @@ export const getRefunds = (params: any) =>
   request.get<any, ApiResponse<PageData<Refund>>>(`${merchantApiBase}/refunds`, { params })
 
 // 商户测试支付
-export function testPayment(data: { amount: string; pay_type: string; pay_method?: string }) {
+export function testPayment(data: { amount: string; pay_type: string; pay_method?: string; openid?: string }) {
   return request.post<any, ApiResponse>(`${merchantApiBase}/test-payment`, data)
 }

@@ -11,6 +11,7 @@
             <a-option :value="0">待处理</a-option>
             <a-option :value="1">成功</a-option>
             <a-option :value="2">失败</a-option>
+            <a-option :value="3">处理中</a-option>
           </a-select>
         </a-form-item>
         <a-form-item>
@@ -24,7 +25,8 @@
         :data="refunds"
         :loading="loading"
         :pagination="pagination"
-        @change="handleTableChange"
+        @page-change="handlePageChange"
+        @page-size-change="handlePageSizeChange"
         row-key="id"
       >
         <template #columns>
@@ -38,6 +40,7 @@
               <a-tag v-if="record.status === 0" color="orange">待处理</a-tag>
               <a-tag v-else-if="record.status === 1" color="green">成功</a-tag>
               <a-tag v-else-if="record.status === 2" color="red">失败</a-tag>
+              <a-tag v-else-if="record.status === 3" color="blue">处理中</a-tag>
             </template>
           </a-table-column>
           <a-table-column title="失败原因" data-index="fail_reason" ellipsis />
@@ -103,8 +106,8 @@ const pagination = reactive({
   current: 1,
   pageSize: 20,
   total: 0,
-  showSizeChanger: true,
-  showTotal: (total: number) => `共 ${total} 条`
+  showPageSize: true,
+  showTotal: true
 })
 
 const fetchRefunds = async () => {
@@ -147,9 +150,13 @@ const handleReset = () => {
   fetchRefunds()
 }
 
-const handleTableChange = (pag: any) => {
-  pagination.current = pag.current
-  pagination.pageSize = pag.pageSize
+const handlePageChange = (page: number) => {
+  pagination.current = page
+  fetchRefunds()
+}
+const handlePageSizeChange = (size: number) => {
+  pagination.pageSize = size
+  pagination.current = 1
   fetchRefunds()
 }
 

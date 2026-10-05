@@ -49,7 +49,7 @@ func ParseToken(tokenString string) (*Claims, error) {
 
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(cfg.Secret), nil
-	})
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithIssuer("epay-go"), jwt.WithExpirationRequired())
 
 	if err != nil {
 		return nil, err

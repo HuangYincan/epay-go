@@ -103,6 +103,8 @@ export const processRefund = (refundNo: string, data: { success: boolean; fail_r
   request.post<any, ApiResponse>(`${adminApiBase}/refunds/${refundNo}/process`, data)
 
 // 测试支付
-export const testPayment = (data: { channel_id: number; amount: string; pay_type: string }) => {
+export const testPayment = (data: { channel_id: number; amount: string; pay_type: string; openid?: string }) => {
   return request.post<any, ApiResponse>(`${adminApiBase}/test-payment`, data)
 }
+
+export function completeSettlement(id: number) { return request.patch<any, ApiResponse>(`${adminApiBase}/settlements/${id}/complete`) }

@@ -1,7 +1,6 @@
 package payment
 
 import (
-	"context"
 	"fmt"
 	"html/template"
 	"net/url"
@@ -17,32 +16,33 @@ import (
 )
 
 type LegacyCreateOrderRequest struct {
-	Pid        string `form:"pid" binding:"required"`
-	Type       string `form:"type"`
-	OutTradeNo string `form:"out_trade_no" binding:"required"`
-	NotifyURL  string `form:"notify_url" binding:"required"`
-	ReturnURL  string `form:"return_url"`
-	Name       string `form:"name" binding:"required"`
-	Money      string `form:"money" binding:"required"`
-	Sign       string `form:"sign" binding:"required"`
-	SignType   string `form:"sign_type"`
-	ClientType string `form:"clientip"`
-	Device     string `form:"device"`
-	PayMethod  string `form:"pay_method"`
+	OpenID     string `form:"openid" json:"openid"`
+	Pid        string `form:"pid" json:"pid" binding:"required"`
+	Type       string `form:"type" json:"type"`
+	OutTradeNo string `form:"out_trade_no" json:"out_trade_no" binding:"required"`
+	NotifyURL  string `form:"notify_url" json:"notify_url" binding:"required"`
+	ReturnURL  string `form:"return_url" json:"return_url"`
+	Name       string `form:"name" json:"name" binding:"required"`
+	Money      string `form:"money" json:"money" binding:"required"`
+	Sign       string `form:"sign" json:"sign" binding:"required"`
+	SignType   string `form:"sign_type" json:"sign_type"`
+	ClientType string `form:"clientip" json:"clientip"`
+	Device     string `form:"device" json:"device"`
+	PayMethod  string `form:"pay_method" json:"pay_method"`
 }
 
 type LegacyAPIRequest struct {
-	Act        string `form:"act" binding:"required"`
-	Pid        string `form:"pid" binding:"required"`
-	Key        string `form:"key" binding:"required"`
-	TradeNo    string `form:"trade_no"`
-	OutTradeNo string `form:"out_trade_no"`
-	Page       int    `form:"page"`
-	Limit      int    `form:"limit"`
-	RefundNo   string `form:"refund_no"`
-	Amount     string `form:"money"`
-	Reason     string `form:"reason"`
-	NotifyURL  string `form:"notify_url"`
+	Act        string `form:"act" json:"act" binding:"required"`
+	Pid        string `form:"pid" json:"pid" binding:"required"`
+	Key        string `form:"key" json:"key" binding:"required"`
+	TradeNo    string `form:"trade_no" json:"trade_no"`
+	OutTradeNo string `form:"out_trade_no" json:"out_trade_no"`
+	Page       int    `form:"page" json:"page"`
+	Limit      int    `form:"limit" json:"limit"`
+	RefundNo   string `form:"refund_no" json:"refund_no"`
+	Amount     string `form:"money" json:"money"`
+	Reason     string `form:"reason" json:"reason"`
+	NotifyURL  string `form:"notify_url" json:"notify_url"`
 }
 
 type legacyResolvedMerchant struct {
@@ -72,6 +72,10 @@ func LegacySubmit(c *gin.Context) {
 		return
 	}
 
+	if orderResp.PayType == "jsapi" {
+		c.Redirect(302, "/cashier/"+orderResp.TradeNo)
+		return
+	}
 	legacyHTML(c, "未获取到支付跳转地址")
 }
 
@@ -116,6 +120,10 @@ func LegacyAPI(c *gin.Context) {
 		return
 	}
 	merchant := resolved.Merchant
+	if merchant.Status != 1 {
+		legacyError(c, "商户已被禁用")
+		return
+	}
 	if merchant.ApiKey != req.Key {
 		legacyError(c, "密钥错误")
 		return
@@ -144,7 +152,7 @@ func LegacyAPI(c *gin.Context) {
 		} else {
 			order, err = orderService.GetByOutTradeNo(merchant.ID, req.OutTradeNo)
 		}
-		if err != nil {
+		if err != nil || order.MerchantID != merchant.ID {
 			legacyError(c, "订单不存在")
 			return
 		}
@@ -221,16 +229,16 @@ func LegacyAPI(c *gin.Context) {
 		list := make([]gin.H, 0, len(settlements))
 		for _, item := range settlements {
 			list = append(list, gin.H{
-				"settle_no":      item.SettleNo,
-				"money":          item.Amount.StringFixed(2),
-				"fee":            item.Fee.StringFixed(2),
-				"actual_money":   item.ActualAmount.StringFixed(2),
-				"account_type":   item.AccountType,
-				"account_no":     item.AccountNo,
-				"account_name":   item.AccountName,
-				"status":         item.Status,
-				"remark":         item.Remark,
-				"created_at":     item.CreatedAt.Format("2006-01-02 15:04:05"),
+				"settle_no":    item.SettleNo,
+				"money":        item.Amount.StringFixed(2),
+				"fee":          item.Fee.StringFixed(2),
+				"actual_money": item.ActualAmount.StringFixed(2),
+				"account_type": item.AccountType,
+				"account_no":   item.AccountNo,
+				"account_name": item.AccountName,
+				"status":       item.Status,
+				"remark":       item.Remark,
+				"created_at":   item.CreatedAt.Format("2006-01-02 15:04:05"),
 			})
 		}
 
@@ -318,6 +326,9 @@ func createLegacyOrder(c *gin.Context, req *LegacyCreateOrderRequest) (*service.
 	if req.PayMethod != "" {
 		params.Set("pay_method", req.PayMethod)
 	}
+	if req.OpenID != "" {
+		params.Set("openid", req.OpenID)
+	}
 	if req.ClientType != "" {
 		params.Set("clientip", req.ClientType)
 	}
@@ -336,18 +347,19 @@ func createLegacyOrder(c *gin.Context, req *LegacyCreateOrderRequest) (*service.
 		return nil, nil, err
 	}
 
-	orderResp, err := orderService.Create(context.Background(), &service.CreateOrderRequest{
-		MerchantID:       merchant.ID,
-		OutTradeNo:       req.OutTradeNo,
-		Amount:           amount,
-		Name:             req.Name,
-		PayType:          routing.PayType,
-		NotifyURL:        req.NotifyURL,
+	orderResp, err := orderService.Create(c.Request.Context(), &service.CreateOrderRequest{
+		MerchantID:        merchant.ID,
+		OutTradeNo:        req.OutTradeNo,
+		Amount:            amount,
+		Name:              req.Name,
+		PayType:           routing.PayType,
+		NotifyURL:         req.NotifyURL,
 		MerchantNotifyURL: req.NotifyURL,
-		PlatformBaseURL:  getPaymentBaseURL(c),
-		ReturnURL:        req.ReturnURL,
-		ClientIP:         utils.GetClientIP(c),
-		PayMethod:        routing.PayMethod,
+		PlatformBaseURL:   getPaymentBaseURL(c),
+		ReturnURL:         req.ReturnURL,
+		ClientIP:          utils.GetClientIP(c),
+		PayMethod:         routing.PayMethod,
+		Extra:             map[string]string{"openid": req.OpenID},
 	})
 	if err != nil {
 		return nil, nil, err
@@ -371,6 +383,11 @@ func resolveLegacyMerchant(merchantService *service.MerchantService, pid string)
 	return &legacyResolvedMerchant{Merchant: merchant, Pid: strconv.FormatInt(merchant.ID, 10)}, nil
 }
 func attachLegacyPayFields(resp gin.H, orderResp *service.CreateOrderResponse) {
+	if orderResp.PayParams != "" {
+		resp["pay_type"] = orderResp.PayType
+		resp["pay_params"] = orderResp.PayParams
+		resp["payurl"] = "/cashier/" + orderResp.TradeNo
+	}
 	if orderResp.PayURL == "" {
 		return
 	}
@@ -387,7 +404,7 @@ func attachLegacyPayFields(resp gin.H, orderResp *service.CreateOrderResponse) {
 
 func legacyHTML(c *gin.Context, msg string) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.String(200, "<html><body><h3>"+msg+"</h3></body></html>")
+	c.String(200, "<html><body><h3>"+template.HTMLEscapeString(msg)+"</h3></body></html>")
 }
 
 func legacyQRCodePage(c *gin.Context, req *LegacyCreateOrderRequest, orderResp *service.CreateOrderResponse) {

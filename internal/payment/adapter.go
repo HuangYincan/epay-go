@@ -57,19 +57,25 @@ type QueryOrderResponse struct {
 
 // RefundRequest 退款请求
 type RefundRequest struct {
-	TradeNo    string          `json:"trade_no"`
-	RefundNo   string          `json:"refund_no"`
+	TradeNo     string          `json:"trade_no"`
+	RefundNo    string          `json:"refund_no"`
 	TotalAmount decimal.Decimal `json:"total_amount"`
-	Amount     decimal.Decimal `json:"amount"`
-	RefundDesc string          `json:"refund_desc"`
+	Amount      decimal.Decimal `json:"amount"`
+	RefundDesc  string          `json:"refund_desc"`
 }
 
 // RefundResponse 退款响应
 type RefundResponse struct {
-	RefundNo     string `json:"refund_no"`
-	ApiRefundNo  string `json:"api_refund_no"`
-	Status       string `json:"status"` // success/processing/failed
-	ErrorMessage string `json:"error_message,omitempty"`
+	RefundNo     string          `json:"refund_no"`
+	ApiRefundNo  string          `json:"api_refund_no"`
+	Status       string          `json:"status"` // success/processing/failed
+	ErrorMessage string          `json:"error_message,omitempty"`
+	Amount       decimal.Decimal `json:"amount,omitempty"`
+}
+
+// RefundQuerier recovers uncertain refunds without creating another request.
+type RefundQuerier interface {
+	QueryRefund(context.Context, *RefundRequest) (*RefundResponse, error)
 }
 
 // NotifyResult 统一回调结果

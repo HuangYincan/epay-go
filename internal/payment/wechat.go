@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/go-pay/gopay"
 	"github.com/go-pay/gopay/wechat/v3"
@@ -14,13 +16,14 @@ import (
 
 // WechatConfig 微信支付配置
 type WechatConfig struct {
-	MchID               string `json:"mch_id"`                 // 商户号
-	AppID               string `json:"app_id"`                 // 应用ID
-	APIv3Key            string `json:"api_v3_key"`             // APIv3密钥
-	SerialNo            string `json:"serial_no"`              // 证书序列号
-	PrivateKey          string `json:"private_key"`            // 私钥内容
-	PlatformSerialNo    string `json:"platform_serial_no"`     // 平台证书序列号
-	PlatformCertContent string `json:"platform_cert_content"`  // 平台证书内容
+	PlatformPublicKey   string `json:"platform_public_key"`
+	MchID               string `json:"mch_id"`                // 商户号
+	AppID               string `json:"app_id"`                // 应用ID
+	APIv3Key            string `json:"api_v3_key"`            // APIv3密钥
+	SerialNo            string `json:"serial_no"`             // 证书序列号
+	PrivateKey          string `json:"private_key"`           // 私钥内容
+	PlatformSerialNo    string `json:"platform_serial_no"`    // 平台证书序列号
+	PlatformCertContent string `json:"platform_cert_content"` // 平台证书内容
 }
 
 // WechatAdapter 微信支付适配器
@@ -70,8 +73,16 @@ func NewWechatAdapter(configJSON json.RawMessage) (PaymentAdapter, error) {
 	}
 
 	// 设置平台证书
-	if cfg.PlatformCertContent != "" {
-		client.SetPlatformCert([]byte(cfg.PlatformCertContent), cfg.PlatformSerialNo)
+	switch {
+	case cfg.PlatformPublicKey != "":
+		err = client.AutoVerifySignByPublicKey([]byte(cfg.PlatformPublicKey), cfg.PlatformSerialNo)
+	case cfg.PlatformCertContent != "":
+		err = client.AutoVerifySignByCert([]byte(cfg.PlatformCertContent), cfg.PlatformSerialNo)
+	default:
+		err = client.AutoVerifySign(false)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	return &WechatAdapter{
@@ -221,6 +232,9 @@ func (w *WechatAdapter) Refund(ctx context.Context, req *RefundRequest) (*Refund
 		return nil, err
 	}
 
+	if resp.Code >= 500 || resp.Code == http.StatusTooManyRequests {
+		return nil, errors.New(resp.Error)
+	}
 	if resp.Code != wechat.Success {
 		return &RefundResponse{
 			RefundNo:     req.RefundNo,
@@ -243,15 +257,28 @@ func (w *WechatAdapter) Refund(ctx context.Context, req *RefundRequest) (*Refund
 
 // ParseNotify 解析回调通知
 func (w *WechatAdapter) ParseNotify(ctx context.Context, r *http.Request) (*NotifyResult, error) {
+	ts, err := strconv.ParseInt(r.Header.Get("Wechatpay-Timestamp"), 10, 64)
+	if err != nil || time.Since(time.Unix(ts, 0)) > 5*time.Minute || time.Until(time.Unix(ts, 0)) > 5*time.Minute {
+		return nil, errors.New("微信通知时间戳无效")
+	}
 	notifyReq, err := wechat.V3ParseNotify(r)
 	if err != nil {
 		return nil, err
 	}
 
+	if w.client == nil || w.client.WxPublicKeyMap()[r.Header.Get("Wechatpay-Serial")] == nil {
+		return nil, errors.New("微信通知平台证书未知")
+	}
+	if err := notifyReq.VerifySignByPKMap(w.client.WxPublicKeyMap()); err != nil {
+		return nil, err
+	}
 	// 解密支付回调内容
 	result, err := notifyReq.DecryptPayCipherText(w.config.APIv3Key)
 	if err != nil {
 		return nil, err
+	}
+	if result.Appid != w.config.AppID || result.Mchid != w.config.MchID || result.Amount == nil || result.Payer == nil {
+		return nil, errors.New("微信通知商户、应用或金额信息不匹配")
 	}
 
 	status := "fail"
@@ -278,4 +305,25 @@ func (w *WechatAdapter) NotifySuccess() string {
 
 func init() {
 	Register("wechat", NewWechatAdapter)
+}
+
+func (w *WechatAdapter) QueryRefund(ctx context.Context, req *RefundRequest) (*RefundResponse, error) {
+	resp, err := w.client.V3RefundQuery(ctx, req.RefundNo, nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Code != wechat.Success {
+		if resp.Code == http.StatusNotFound {
+			return &RefundResponse{Status: "not_found"}, nil
+		}
+		return nil, errors.New(resp.Error)
+	}
+	status := "processing"
+	switch resp.Response.Status {
+	case "SUCCESS":
+		status = "success"
+	case "CLOSED":
+		status = "failed"
+	}
+	return &RefundResponse{RefundNo: req.RefundNo, ApiRefundNo: resp.Response.RefundId, Status: status, Amount: decimal.NewFromInt(int64(resp.Response.Amount.Refund)).Div(decimal.NewFromInt(100))}, nil
 }

@@ -122,6 +122,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '个人信息' },
       },
       {
+        path: 'refunds',
+        name: 'MerchantRefunds',
+        component: () => import('@/views/merchant/Refunds.vue'),
+        meta: { title: '退款管理' },
+      },
+      {
         path: 'test-payment',
         name: 'MerchantTestPayment',
         component: () => import('@/views/merchant/TestPayment.vue'),

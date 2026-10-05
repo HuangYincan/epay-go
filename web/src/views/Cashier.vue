@@ -22,6 +22,7 @@
         <div class="method-title">选择支付方式</div>
         <div class="methods">
           <div
+            v-if="order.pay_type === 'alipay'"
             class="method-item"
             :class="{ active: selectedMethod === 'alipay' }"
             @click="selectedMethod = 'alipay'"
@@ -29,7 +30,7 @@
             <icon-alipay-circle style="font-size: 32px; color: #1677ff" />
             <span>支付宝</span>
           </div>
-          <div
+          <div v-if="order.pay_type === 'wxpay'"
             class="method-item"
             :class="{ active: selectedMethod === 'wxpay' }"
             @click="selectedMethod = 'wxpay'"
@@ -43,13 +44,14 @@
         </a-button>
       </div>
 
-      <div class="pay-result" v-else-if="order.status === 1">
+      <div v-if="qrImage" style="text-align:center"><img :src="qrImage" alt="支付二维码" width="240" height="240" /><p>请使用原支付方式扫码，页面会自动更新支付状态。</p></div>
+      <div class="pay-result" v-if="order.status === 1">
         <icon-check-circle style="font-size: 64px; color: #00b42a" />
         <div class="result-text">支付成功</div>
         <div class="result-hint">感谢您的支付</div>
       </div>
 
-      <div class="pay-result" v-else>
+      <div class="pay-result" v-else-if="order.status !== 0">
         <icon-close-circle style="font-size: 64px; color: #f53f3f" />
         <div class="result-text">订单已关闭</div>
       </div>
@@ -70,10 +72,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import request from '@/api/request'
+import QRCode from 'qrcode'
 
 interface CashierOrder {
   trade_no: string
@@ -88,6 +91,8 @@ const loading = ref(true)
 const paying = ref(false)
 const order = ref<CashierOrder | null>(null)
 const selectedMethod = ref('alipay')
+const qrImage = ref('')
+let pollTimer: ReturnType<typeof setInterval> | undefined
 
 const fetchOrder = async () => {
   const tradeNo = route.params.tradeNo as string
@@ -98,6 +103,8 @@ const fetchOrder = async () => {
   try {
     const res = await request.get(`/api/cashier/${tradeNo}`)
     order.value = res.data
+    selectedMethod.value = res.data.pay_type
+    if (res.data.status !== 0) qrImage.value = ''
   } catch (e) {
     order.value = null
   } finally {
@@ -112,11 +119,19 @@ const handlePay = async () => {
     const res = await request.post(`/api/cashier/${order.value.trade_no}/pay`, {
       pay_type: selectedMethod.value,
     })
-    if (res.data.pay_url) {
+    if (res.data.pay_type === 'qrcode' && res.data.pay_url) {
+      qrImage.value = await QRCode.toDataURL(res.data.pay_url)
+    } else if (res.data.pay_type === 'jsapi' && res.data.pay_params) {
+      const bridge = (window as unknown as { WeixinJSBridge?: { invoke: (name: string, args: object, cb: (result: { err_msg: string }) => void) => void } }).WeixinJSBridge
+      if (!bridge) { Message.warning('请在微信内打开此页面'); return }
+      bridge.invoke('getBrandWCPayRequest', JSON.parse(res.data.pay_params), result => {
+        if (result.err_msg === 'get_brand_wcpay_request:ok') fetchOrder()
+        else Message.warning('支付未完成，请重试')
+      })
+    } else if (res.data.pay_url) {
       window.location.href = res.data.pay_url
-    } else if (res.data.qr_code) {
-      Message.info('请使用手机扫描二维码支付')
     }
+
   } catch (e) {
     // ignore
   } finally {
@@ -126,7 +141,9 @@ const handlePay = async () => {
 
 onMounted(() => {
   fetchOrder()
+  pollTimer = setInterval(() => { if (order.value?.status === 0) fetchOrder() }, 3000)
 })
+onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 </script>
 
 <style scoped>

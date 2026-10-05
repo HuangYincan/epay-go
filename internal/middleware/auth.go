@@ -2,6 +2,8 @@
 package middleware
 
 import (
+	"github.com/example/epay-go/internal/database"
+	"github.com/example/epay-go/internal/model"
 	"strings"
 
 	"github.com/example/epay-go/pkg/jwt"
@@ -48,6 +50,14 @@ func JWTAuth(requiredType jwt.TokenType) gin.HandlerFunc {
 		}
 
 		// 将用户信息存入上下文
+		if requiredType == jwt.TokenTypeMerchant {
+			var merchant model.Merchant
+			if err := database.Get().First(&merchant, claims.UserID).Error; err != nil || merchant.Status != 1 {
+				response.Forbidden(c, "商户不存在或已禁用")
+				c.Abort()
+				return
+			}
+		}
 		c.Set(ContextKeyUserID, claims.UserID)
 		c.Set(ContextKeyUsername, claims.Username)
 		c.Set(ContextKeyTokenType, claims.TokenType)

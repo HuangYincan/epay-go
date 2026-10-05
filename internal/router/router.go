@@ -25,11 +25,14 @@ func Setup(r *gin.Engine) {
 		payAPI.GET("/query", payment.QueryOrder)
 		payAPI.GET("/status/:trade_no", payment.PublicOrderStatus)
 		payAPI.POST("/notify/:channel", payment.HandleNotify)
+		payAPI.POST("/notify/:channel/:channel_id", payment.HandleNotify)
 		payAPI.GET("/return/:channel", payment.HandleReturn)
 		// 测试单专用：商户通知兜底（返回 success）
 		payAPI.GET("/test-notify", payment.TestNotify)
 	}
 
+	r.GET("/api/cashier/:trade_no", payment.CashierOrder)
+	r.POST("/api/cashier/:trade_no/pay", payment.CashierPay)
 	// 管理后台 API
 	adminAPI := r.Group("/api/admin")
 	{
@@ -72,6 +75,7 @@ func Setup(r *gin.Engine) {
 			// 结算管理
 			adminAuth.GET("/settlements", admin.ListSettlements)
 			adminAuth.PATCH("/settlements/:id/approve", admin.ApproveSettlement)
+			adminAuth.PATCH("/settlements/:id/complete", admin.CompleteSettlement)
 			adminAuth.PATCH("/settlements/:id/reject", admin.RejectSettlement)
 
 			// 退款管理

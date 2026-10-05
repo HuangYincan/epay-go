@@ -79,7 +79,10 @@ func UpdateMerchant(c *gin.Context) {
 	merchant.Email = req.Email
 	merchant.Phone = req.Phone
 
-	// TODO: 调用 service 更新
+	if err := merchantService.UpdateProfile(id, merchant.Email, merchant.Phone); err != nil {
+		response.ServerError(c, "保存资料失败")
+		return
+	}
 
 	response.Success(c, merchant)
 }

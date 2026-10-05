@@ -12,6 +12,7 @@ import (
 
 // TestPaymentRequest 测试支付请求
 type TestPaymentRequest struct {
+	OpenID    string `json:"openid"`
 	ChannelID int64  `json:"channel_id" binding:"required"`
 	Amount    string `json:"amount" binding:"required"`
 	PayType   string `json:"pay_type" binding:"required"`
@@ -31,7 +32,7 @@ func TestPayment(c *gin.Context) {
 
 	// 创建测试订单
 	orderService := service.NewOrderService()
-	order, payData, err := orderService.CreateTestOrder(req.ChannelID, req.Amount, req.PayType, baseURL)
+	order, payData, err := orderService.CreateTestOrder(req.ChannelID, req.Amount, req.PayType, baseURL, map[string]string{"openid": req.OpenID})
 	if err != nil {
 		response.Error(c, response.CodeServerError, err.Error())
 		return

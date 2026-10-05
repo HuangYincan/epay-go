@@ -1,6 +1,6 @@
 # epay-go/Dockerfile
 # 构建阶段
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26.8-alpine AS builder
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o epay-server ./cmd/server
 
 # 运行阶段
-FROM alpine:3.19
+FROM alpine:3.24
 
 WORKDIR /app
 
