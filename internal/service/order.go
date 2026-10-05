@@ -241,6 +241,7 @@ func (s *OrderService) Checkout(ctx context.Context, no, payType string) (*Creat
 		}
 		updates := map[string]any{"checkout_type": response.PayType, "pay_url": response.PayURL, "pay_params": response.PayParams, "checkout_expires_at": expiresAt}
 		if order.CheckoutType != "" && !cacheValid {
+			updates["query_generation"] = gorm.Expr("query_generation + 1")
 			updates["query_count"] = 0
 			updates["next_query_at"] = FirstQueryAt(time.Now())
 		}

@@ -18,6 +18,8 @@ import (
 // request, including WeChat's platform certificate bootstrap.
 func newProviderHTTPClient() *xhttp.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Adapters are short-lived; retain the SDK's connection lifecycle.
+	transport.DisableKeepAlives = true
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	return xhttp.NewClient().SetHttpTransport(transport).SetTimeout(30 * time.Second)
 }

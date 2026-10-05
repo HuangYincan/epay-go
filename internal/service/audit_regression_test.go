@@ -288,16 +288,31 @@ func TestWechatH5CheckoutRefresh(t *testing.T) {
 			if a.createCalls.Load() != 1 || request == nil || request.TradeNo != o.TradeNo || !request.Amount.Equal(o.RealAmount) || got.CheckoutExpiresAt == nil || !got.CheckoutExpiresAt.After(time.Now()) || got.QueryCount != 0 || got.NextQueryAt == nil || got.ChannelID != o.ChannelID || got.MerchantID != m.ID {
 				t.Fatalf("refresh did not preserve order / cache: %+v / %+v", got, request)
 			}
-			// A worker that read the old final attempt cannot terminate the new schedule.
-			if err := repository.NewOrderRepository().UpdateQueryStatus(o.TradeNo, nil, 5); err != nil {
+			// Old workers cannot terminate a refreshed schedule, even when the
+			// attempt count returns to zero (the ABA case).
+			for _, oldCount := range []int{5, 0} {
+				if err := repository.NewOrderRepository().UpdateQueryStatus(o.TradeNo, nil, oldCount, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err = svc.GetByTradeNo(o.TradeNo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.NextQueryAt == nil || got.QueryCount != 0 || got.QueryGeneration != 1 {
+				t.Fatal("stale query result cleared refreshed schedule")
+			}
+			// The current generation must still advance normally.
+			next := time.Now().Add(time.Minute).Truncate(time.Second)
+			if err := repository.NewOrderRepository().UpdateQueryStatus(o.TradeNo, &next, got.QueryCount, got.QueryGeneration); err != nil {
 				t.Fatal(err)
 			}
 			got, err = svc.GetByTradeNo(o.TradeNo)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.NextQueryAt == nil || got.QueryCount != 0 {
-				t.Fatal("stale query result cleared refreshed schedule")
+			if got.QueryCount != 1 || got.NextQueryAt == nil || !got.NextQueryAt.Equal(next) || got.QueryGeneration != 1 {
+				t.Fatal("current query generation failed to advance")
 			}
 		})
 	}

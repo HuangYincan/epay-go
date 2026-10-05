@@ -177,7 +177,7 @@ func (r *OrderRepository) GetPendingQueryOrders(limit int) ([]model.Order, error
 }
 
 // UpdateQueryStatus 更新主动查询进度
-func (r *OrderRepository) UpdateQueryStatus(tradeNo string, nextQueryAt *time.Time, expectedCount int) error {
+func (r *OrderRepository) UpdateQueryStatus(tradeNo string, nextQueryAt *time.Time, expectedCount int, expectedGeneration int64) error {
 	updates := map[string]interface{}{"query_count": gorm.Expr("query_count + 1")}
 	if nextQueryAt != nil {
 		updates["next_query_at"] = nextQueryAt
@@ -186,7 +186,9 @@ func (r *OrderRepository) UpdateQueryStatus(tradeNo string, nextQueryAt *time.Ti
 	}
 	// A stale worker must not clear the schedule restarted by an H5 refresh,
 	// or advance the same attempt twice across application instances.
-	return r.db.Model(&model.Order{}).Where("trade_no = ? AND query_count = ?", tradeNo, expectedCount).Updates(updates).Error
+	return r.db.Model(&model.Order{}).
+		Where("trade_no = ? AND query_count = ? AND query_generation = ?", tradeNo, expectedCount, expectedGeneration).
+		Updates(updates).Error
 }
 
 // GetTodayStats 获取今日统计

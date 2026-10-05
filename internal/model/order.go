@@ -31,6 +31,7 @@ type Order struct {
 	NotifyLeaseUntil *time.Time      `json:"-"`
 	NotifyLeaseToken string          `gorm:"size:32" json:"-"`
 	QueryCount       int             `gorm:"default:0" json:"query_count"`
+	QueryGeneration  int64           `gorm:"default:0" json:"-"`
 	NextQueryAt      *time.Time      `json:"next_query_at"`
 	PaidAt           *time.Time      `json:"paid_at"`
 

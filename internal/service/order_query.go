@@ -103,14 +103,14 @@ func (s *OrderQueryService) queryAndProcess(order *model.Order) {
 			s.scheduleNext(order)
 			return
 		}
-		if err := s.orderRepo.UpdateQueryStatus(order.TradeNo, nil, order.QueryCount); err != nil {
+		if err := s.orderRepo.UpdateQueryStatus(order.TradeNo, nil, order.QueryCount, order.QueryGeneration); err != nil {
 			log.Printf("Active query: update query status failed trade_no=%s: %v", order.TradeNo, err)
 		}
 		if paidOrder, err := s.orderSvc.GetByTradeNo(order.TradeNo); err == nil && paidOrder.Status == model.OrderStatusPaid {
 			go s.notifySvc.SendNotify(paidOrder)
 		}
 	case "closed":
-		if err := s.orderRepo.UpdateQueryStatus(order.TradeNo, nil, order.QueryCount); err != nil {
+		if err := s.orderRepo.UpdateQueryStatus(order.TradeNo, nil, order.QueryCount, order.QueryGeneration); err != nil {
 			log.Printf("Active query: update query status failed trade_no=%s: %v", order.TradeNo, err)
 		}
 	default:
@@ -126,7 +126,7 @@ func (s *OrderQueryService) scheduleNext(order *model.Order) {
 		t := time.Now().Add(QueryIntervals[nextIdx])
 		nextAt = &t
 	}
-	if err := s.orderRepo.UpdateQueryStatus(order.TradeNo, nextAt, order.QueryCount); err != nil {
+	if err := s.orderRepo.UpdateQueryStatus(order.TradeNo, nextAt, order.QueryCount, order.QueryGeneration); err != nil {
 		log.Printf("Update query status failed trade_no=%s: %v", order.TradeNo, err)
 	}
 }
