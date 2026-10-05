@@ -229,6 +229,12 @@ func (h *HuifuAdapter) resolveTradeType(payMethod string) (string, error) {
 
 // CreateOrder 创建支付订单
 func (h *HuifuAdapter) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*CreateOrderResponse, error) {
+	if len(req.TradeNo) < 8 {
+		return nil, errors.New("汇付订单号缺少原请求日期")
+	}
+	if _, err := time.Parse("20060102", req.TradeNo[:8]); err != nil {
+		return nil, errors.New("汇付订单号日期无效")
+	}
 	tradeType, err := h.resolveTradeType(req.PayMethod)
 	if err != nil {
 		return nil, err
@@ -236,7 +242,7 @@ func (h *HuifuAdapter) CreateOrder(ctx context.Context, req *CreateOrderRequest)
 
 	data := map[string]interface{}{
 		"req_seq_id": req.TradeNo,
-		"req_date":   time.Now().Format("20060102"),
+		"req_date":   req.TradeNo[:8],
 		"huifu_id":   h.config.HuifuID,
 		"goods_desc": req.Subject,
 		"trade_type": tradeType,

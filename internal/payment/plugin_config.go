@@ -5,7 +5,7 @@ package payment
 type PluginConfigField struct {
 	Key         string            `json:"key"`         // 字段键名
 	Name        string            `json:"name"`        // 显示名称
-	Type        string            `json:"type"`        // 类型: input/textarea/select/checkbox
+	Type        string            `json:"type"`        // 类型: input/textarea/select/checkbox/boolean
 	Required    bool              `json:"required"`    // 是否必填
 	Placeholder string            `json:"placeholder"` // 占位符
 	Note        string            `json:"note"`        // 说明文字
@@ -75,13 +75,9 @@ func GetAlipayConfig() PluginConfig {
 			{
 				Key:      "is_prod",
 				Name:     "是否生产环境",
-				Type:     "select",
+				Type:     "boolean",
 				Required: true,
-				Options: map[string]string{
-					"false": "否（沙箱/测试）",
-					"true":  "是（生产）",
-				},
-				Note: "沙箱请选 false；生产请选择 true",
+				Note:     "关闭为沙箱/测试，开启为生产环境",
 			},
 			{
 				Key:      "sign_type",

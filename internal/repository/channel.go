@@ -32,6 +32,16 @@ func (r *ChannelRepository) GetByID(id int64) (*model.Channel, error) {
 	return &channel, nil
 }
 
+// Historical financial operations must retain access to archived credentials.
+// New order routing continues to use the default scope, excluding deleted channels.
+func (r *ChannelRepository) GetHistoricalByID(id int64) (*model.Channel, error) {
+	var channel model.Channel
+	if err := r.db.Unscoped().First(&channel, id).Error; err != nil {
+		return nil, err
+	}
+	return &channel, nil
+}
+
 // Update 更新通道
 func (r *ChannelRepository) Update(channel *model.Channel) error {
 	return r.db.Save(channel).Error
@@ -84,7 +94,18 @@ func (r *ChannelRepository) GetByPluginAndPayType(plugin, payType string) (*mode
 
 // GetAvailableByPayType 根据支付类型获取可用通道
 func (r *ChannelRepository) GetAvailableByPayType(payType string) (*model.Channel, error) {
-	var channel model.Channel
+	channels, err := r.ListAvailableByPayType(payType)
+	if err != nil {
+		return nil, err
+	}
+	if len(channels) == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &channels[0], nil
+}
+
+func (r *ChannelRepository) ListAvailableByPayType(payType string) ([]model.Channel, error) {
+	var channels []model.Channel
 	normalizedPayType := strings.ToLower(strings.TrimSpace(payType))
 	query := r.db.Where("status = 1")
 
@@ -101,9 +122,6 @@ func (r *ChannelRepository) GetAvailableByPayType(payType string) (*model.Channe
 		query = query.Where("pay_types LIKE ?", "%"+normalizedPayType+"%")
 	}
 
-	err := query.Order("sort ASC").First(&channel).Error
-	if err != nil {
-		return nil, err
-	}
-	return &channel, nil
+	err := query.Order("sort ASC, id ASC").Find(&channels).Error
+	return channels, err
 }

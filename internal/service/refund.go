@@ -121,7 +121,7 @@ func (s *RefundService) ProcessRefund(no string, approve bool, reason string) er
 		if err = validateMoney(amount); err != nil {
 			return err
 		}
-		if err = tx.First(&channel, order.ChannelID).Error; err != nil {
+		if err = tx.Unscoped().First(&channel, order.ChannelID).Error; err != nil {
 			return err
 		}
 		merchant, err := s.merchantRepo.GetByIDForUpdate(tx, r.MerchantID)

@@ -115,7 +115,7 @@ export interface Refund {
 export interface PluginConfigField {
   key: string
   name: string
-  type: 'input' | 'textarea' | 'select' | 'checkbox'
+  type: 'input' | 'textarea' | 'select' | 'checkbox' | 'boolean'
   required: boolean
   placeholder: string
   note: string

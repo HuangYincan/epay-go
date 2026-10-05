@@ -17,6 +17,7 @@ import (
 	"github.com/example/epay-go/internal/model"
 	"github.com/example/epay-go/internal/repository"
 	"github.com/example/epay-go/pkg/safehttp"
+	"github.com/example/epay-go/pkg/utils"
 )
 
 type NotifyService struct {
@@ -45,14 +46,33 @@ var NotifyRetryIntervals = []time.Duration{
 
 // SendNotify 发送回调通知
 func (s *NotifyService) SendNotify(order *model.Order) error {
+	return s.sendNotify(order, false)
+}
+
+// ResendNotify is only used by the authenticated admin action, never callbacks.
+func (s *NotifyService) ResendNotify(order *model.Order) error {
+	return s.sendNotify(order, true)
+}
+
+func (s *NotifyService) sendNotify(order *model.Order, force bool) error {
+	token := utils.GenerateAPIKey()
+	now := time.Now()
+	claimed, err := s.orderRepo.ClaimNotify(order.TradeNo, token, now, now.Add(2*time.Minute), force)
+	if err != nil || claimed == nil {
+		return err
+	}
+	order = claimed // Use the current database attempt count, never the caller's snapshot.
 	if strings.TrimSpace(order.NotifyURL) == "" {
 		log.Printf("Skip merchant notify: trade_no=%s reason=empty_notify_url", order.TradeNo)
-		return s.orderRepo.UpdateNotifyStatus(order.TradeNo, model.NotifyStatusSuccess, nil)
+		return s.orderRepo.FinishNotify(order.TradeNo, token, model.NotifyStatusSuccess, nil)
 	}
 
 	// 获取商户信息
 	merchant, err := s.merchantRepo.GetByID(order.MerchantID)
 	if err != nil {
+		if finishErr := s.finishNotify(order, token, false); finishErr != nil {
+			return finishErr
+		}
 		return err
 	}
 
@@ -62,23 +82,25 @@ func (s *NotifyService) SendNotify(order *model.Order) error {
 
 	// 发送请求
 	success := s.doNotify(order.NotifyURL, params)
+	return s.finishNotify(order, token, success)
+}
 
-	// 更新通知状态
+func (s *NotifyService) finishNotify(order *model.Order, token string, success bool) error {
 	if success {
 		log.Printf("Merchant notify success: trade_no=%s notify_url=%s", order.TradeNo, order.NotifyURL)
-		return s.orderRepo.UpdateNotifyStatus(order.TradeNo, model.NotifyStatusSuccess, nil)
+		return s.orderRepo.FinishNotify(order.TradeNo, token, model.NotifyStatusSuccess, nil)
 	}
 
 	// 通知失败，计算下次重试时间
-	nextCount := order.NotifyCount + 1
+	nextCount := order.NotifyCount
 	if nextCount >= len(NotifyRetryIntervals) {
 		// 重试次数用尽
-		return s.orderRepo.UpdateNotifyStatus(order.TradeNo, model.NotifyStatusFailed, nil)
+		return s.orderRepo.FinishNotify(order.TradeNo, token, model.NotifyStatusFailed, nil)
 	}
 
 	nextTime := time.Now().Add(NotifyRetryIntervals[nextCount])
 	log.Printf("Merchant notify scheduled retry: trade_no=%s notify_url=%s next_notify_at=%s", order.TradeNo, order.NotifyURL, nextTime.Format(time.RFC3339))
-	return s.orderRepo.UpdateNotifyStatus(order.TradeNo, model.NotifyStatusSending, &nextTime)
+	return s.orderRepo.FinishNotify(order.TradeNo, token, model.NotifyStatusSending, &nextTime)
 }
 
 // buildNotifyParams 构建通知参数

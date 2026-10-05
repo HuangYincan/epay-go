@@ -18,7 +18,7 @@ type Channel struct {
 	CallbackURL string          `gorm:"size:512" json:"callback_url"`            // 完整回调地址，留空则自动使用当前请求域名拼接
 	Rate        decimal.Decimal `gorm:"type:decimal(7,4);default:0" json:"rate"` // Percentage: 0.6 means 0.6%.
 	DailyLimit  decimal.Decimal `gorm:"type:decimal(12,2);default:0" json:"daily_limit"`
-	Status      int8            `gorm:"default:1" json:"status"` // 0禁用 1启用
+	Status      int8            `gorm:"default:0" json:"status"` // 0禁用 1启用；创建必须显式启用
 	Sort        int             `gorm:"default:0" json:"sort"`
 }
 

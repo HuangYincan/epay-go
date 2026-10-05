@@ -79,32 +79,59 @@ func (s *OrderService) Create(ctx context.Context, req *CreateOrderRequest) (*Cr
 			return nil, err
 		}
 	}
-	channel, err := s.channelRepo.GetAvailableByPayType(req.PayType)
+	channels, err := s.channelRepo.ListAvailableByPayType(req.PayType)
 	if req.ChannelID > 0 {
+		var channel *model.Channel
 		channel, err = s.channelRepo.GetByID(req.ChannelID)
+		if err == nil {
+			channels = []model.Channel{*channel}
+		}
 	}
-	if err != nil {
+	if err != nil || len(channels) == 0 {
 		return nil, errors.New("暂无可用的支付通道")
-	}
-	method := payment.CanonicalMethod(channel.Plugin, req.PayMethod)
-	if method == "jsapi" && req.Extra["openid"] == "" {
-		return nil, errors.New("JSAPI支付必须提供openid")
 	}
 	extra, err := json.Marshal(req.Extra)
 	if err != nil {
 		return nil, err
 	}
+	var lastError error
+	for i := range channels {
+		order, err := s.reserveOrder(ctx, req, &channels[i], string(extra))
+		if errors.Is(err, errChannelUnavailable) {
+			lastError = err
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		// Once reserved, keep this order/channel even if the provider times out.
+		// Falling back after a network request could charge the payer twice.
+		return s.Checkout(ctx, order.TradeNo, req.PayType)
+	}
+	return nil, lastError
+}
+
+var errChannelUnavailable = errors.New("支付通道当前不可用")
+
+func (s *OrderService) reserveOrder(ctx context.Context, req *CreateOrderRequest, channel *model.Channel, extra string) (*model.Order, error) {
+	method := payment.CanonicalMethod(channel.Plugin, req.PayMethod)
+	if method == "jsapi" && req.Extra["openid"] == "" {
+		return nil, errors.New("JSAPI支付必须提供openid")
+	}
 	firstQueryAt := FirstQueryAt(time.Now())
-	order := model.Order{TradeNo: utils.GenerateTradeNo(), OutTradeNo: req.OutTradeNo, MerchantID: req.MerchantID, ChannelID: channel.ID, PayType: req.PayType, Amount: req.Amount, RealAmount: req.Amount, Name: req.Name, NotifyURL: req.MerchantNotifyURL, ReturnURL: req.ReturnURL, ClientIP: req.ClientIP, PayMethod: method, Extra: string(extra), NextQueryAt: &firstQueryAt}
-	err = database.Get().Transaction(func(tx *gorm.DB) error {
+	order := model.Order{TradeNo: utils.GenerateTradeNo(), OutTradeNo: req.OutTradeNo, MerchantID: req.MerchantID, ChannelID: channel.ID, PayType: req.PayType, Amount: req.Amount, RealAmount: req.Amount, Name: req.Name, NotifyURL: req.MerchantNotifyURL, ReturnURL: req.ReturnURL, ClientIP: req.ClientIP, PayMethod: method, Extra: extra, NextQueryAt: &firstQueryAt}
+	err := database.Get().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(channel, channel.ID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("%w: 通道已删除", errChannelUnavailable)
+			}
 			return err
 		}
 		if channel.Status != 1 {
-			return errors.New("支付通道已禁用")
+			return fmt.Errorf("%w: 支付通道已禁用", errChannelUnavailable)
 		}
 		if err := payment.CheckMethod(channel.Plugin, channel.AppType, method); err != nil {
-			return err
+			return fmt.Errorf("%w: %v", errChannelUnavailable, err)
 		}
 		merchant, err := s.merchantRepo.GetByIDForUpdate(tx, req.MerchantID)
 		if err != nil {
@@ -128,7 +155,7 @@ func (s *OrderService) Create(ctx context.Context, req *CreateOrderRequest) (*Cr
 				return err
 			}
 			if total.Add(req.Amount).GreaterThan(channel.DailyLimit) {
-				return errors.New("通道日限额不足")
+				return fmt.Errorf("%w: 通道日限额不足", errChannelUnavailable)
 			}
 		}
 		if channel.Rate.IsNegative() || channel.Rate.GreaterThanOrEqual(decimal.NewFromInt(100)) {
@@ -148,7 +175,7 @@ func (s *OrderService) Create(ctx context.Context, req *CreateOrderRequest) (*Cr
 	if err != nil {
 		return nil, err
 	}
-	return s.Checkout(ctx, order.TradeNo, req.PayType)
+	return &order, nil
 }
 
 // Checkout always uses the original channel, amount and payer. Cache the result and serialize retries.
@@ -166,14 +193,20 @@ func (s *OrderService) Checkout(ctx context.Context, no, payType string) (*Creat
 			return errors.New("请使用订单原支付方式")
 		}
 		result = CreateOrderResponse{TradeNo: order.TradeNo, PayType: order.CheckoutType, PayURL: order.PayURL, PayParams: order.PayParams}
-		if order.CheckoutType != "" {
-			return nil
-		}
 		var channel model.Channel
-		if err := tx.First(&channel, order.ChannelID).Error; err != nil {
+		if err := tx.Unscoped().First(&channel, order.ChannelID).Error; err != nil {
 			return err
 		}
-		if channel.Status != 1 {
+		wechatH5 := channel.Plugin == "wechat" && payment.CanonicalMethod(channel.Plugin, order.PayMethod) == "h5"
+		cacheValid := order.CheckoutExpiresAt == nil || time.Now().Before(*order.CheckoutExpiresAt)
+		// Pre-upgrade H5 caches have no expiry and must be refreshed once.
+		if wechatH5 && order.CheckoutExpiresAt == nil {
+			cacheValid = false
+		}
+		if order.CheckoutType != "" && cacheValid {
+			return nil
+		}
+		if channel.Status != 1 || channel.DeletedAt.Valid {
 			return errors.New("通道已禁用，无法重新发起支付")
 		}
 		if err := payment.CheckMethod(channel.Plugin, channel.AppType, order.PayMethod); err != nil {
@@ -201,7 +234,18 @@ func (s *OrderService) Checkout(ctx context.Context, no, payType string) (*Creat
 		result.PayType = response.PayType
 		result.PayURL = response.PayURL
 		result.PayParams = response.PayParams
-		return tx.Model(order).Updates(map[string]any{"checkout_type": response.PayType, "pay_url": response.PayURL, "pay_params": response.PayParams}).Error
+		var expiresAt *time.Time
+		if wechatH5 {
+			expiry := time.Now().Add(4*time.Minute + 30*time.Second)
+			expiresAt = &expiry
+		}
+		updates := map[string]any{"checkout_type": response.PayType, "pay_url": response.PayURL, "pay_params": response.PayParams, "checkout_expires_at": expiresAt}
+		if order.CheckoutType != "" && !cacheValid {
+			updates["query_generation"] = gorm.Expr("query_generation + 1")
+			updates["query_count"] = 0
+			updates["next_query_at"] = FirstQueryAt(time.Now())
+		}
+		return tx.Model(order).Updates(updates).Error
 	})
 	if err != nil {
 		return nil, err

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/go-pay/gopay"
 	"github.com/go-pay/gopay/alipay"
@@ -34,6 +35,14 @@ func NewAlipayAdapter(configJSON json.RawMessage) (PaymentAdapter, error) {
 	var m map[string]interface{}
 	_ = json.Unmarshal(configJSON, &m)
 	if m != nil {
+		// Old admin forms stored boolean select values as strings.
+		if value, ok := m["is_prod"].(string); ok {
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, errors.New("支付宝生产环境选项必须为true或false")
+			}
+			m["is_prod"] = parsed
+		}
 		// appid -> app_id
 		if _, ok := m["app_id"]; !ok {
 			if v, ok2 := m["appid"]; ok2 {
@@ -70,12 +79,12 @@ func NewAlipayAdapter(configJSON json.RawMessage) (PaymentAdapter, error) {
 		return nil, err
 	}
 
-	// 设置支付宝公钥
-	err = client.SetCertSnByContent(nil, nil, []byte(cfg.PublicKey))
+	client.SetHttpClient(newProviderHTTPClient())
+	cfg.PublicKey, err = normalizeRSAPublicKey(cfg.PublicKey)
 	if err != nil {
-		// 如果证书方式失败，尝试直接设置公钥内容
-		client.AutoVerifySign([]byte(cfg.PublicKey))
+		return nil, err
 	}
+	client.AutoVerifySign([]byte(cfg.PublicKey))
 
 	return &AlipayAdapter{
 		client: client,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -72,6 +73,7 @@ func NewWechatAdapter(configJSON json.RawMessage) (PaymentAdapter, error) {
 		return nil, err
 	}
 
+	client.SetHttpClient(newProviderHTTPClient())
 	// 设置平台证书
 	switch {
 	case cfg.PlatformPublicKey != "":
@@ -140,7 +142,14 @@ func (w *WechatAdapter) CreateOrder(ctx context.Context, req *CreateOrderRequest
 		// 拼接 redirect_url
 		payURL := resp.Response.H5Url
 		if req.ReturnURL != "" {
-			payURL += "&redirect_url=" + req.ReturnURL
+			parsed, err := url.Parse(payURL)
+			if err != nil {
+				return nil, err
+			}
+			query := parsed.Query()
+			query.Set("redirect_url", req.ReturnURL)
+			parsed.RawQuery = query.Encode()
+			payURL = parsed.String()
 		}
 		return &CreateOrderResponse{
 			PayType: "redirect",

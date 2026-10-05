@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/example/epay-go/internal/payment"
+	"github.com/example/epay-go/internal/service"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -318,5 +319,61 @@ func TestMigrationDuplicatePreflight(t *testing.T) {
 	db.Model(&model.Order{}).Count(&n)
 	if n != 2 {
 		t.Fatal("migration deleted historical payments")
+	}
+}
+
+func TestArchivedChannelCallback(t *testing.T) {
+	db := auditDB(t)
+	m := model.Merchant{Username: "deleted-channel", Password: "unused", ApiKey: "dummy"}
+	c := model.Channel{Plugin: "http-fixture", Config: json.RawMessage(`{"key":"fixture"}`), Status: 1}
+	for _, v := range []any{&m, &c} {
+		if err := db.Create(v).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	o := model.Order{TradeNo: "deletion-fixture", OutTradeNo: "deletion-fixture", MerchantID: m.ID, ChannelID: c.ID, Amount: decimal.NewFromInt(2)}
+	if err := db.Create(&o).Error; err != nil {
+		t.Fatal(err)
+	}
+	payment.Register("http-fixture", func(json.RawMessage) (payment.PaymentAdapter, error) { return &httpFixtureAdapter{key: "fixture"}, nil })
+	if err := service.NewChannelService().Delete(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	Setup(engine)
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/pay/notify/http-fixture/%d", c.ID), strings.NewReader("trade_no=deletion-fixture&amount=2"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Fixture-Signature", "fixture")
+	engine.ServeHTTP(res, req)
+	if err := db.First(&o, o.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("successful channel deletion followed by correctly signed callback: response=%q order.status=%d", res.Body.String(), o.Status)
+	if res.Body.String() != "success" || o.Status != model.OrderStatusPaid {
+		t.Fatal("archived payment rejected")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := db.First(&o, o.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if o.NotifyStatus == model.NotifyStatusSuccess {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if o.NotifyStatus != model.NotifyStatusSuccess {
+		t.Fatal("asynchronous notification did not finish")
+	}
+	if err := db.First(&m, m.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !m.Balance.Equal(decimal.NewFromInt(2)) {
+		t.Fatal("archived payment was not credited exactly once")
+	}
+	if _, err := service.NewOrderService().Create(req.Context(), &service.CreateOrderRequest{ChannelID: c.ID, MerchantID: m.ID, OutTradeNo: "new-order", Amount: decimal.NewFromInt(1), PayType: "wxpay", Name: "test", PayMethod: "native"}); err == nil {
+		t.Fatal("archived channel accepted a new order")
 	}
 }
