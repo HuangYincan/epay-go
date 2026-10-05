@@ -34,6 +34,7 @@
                 驳回
               </a-button>
             </template>
+            <a-button v-else-if="record.status === 1" type="text" @click="handleComplete(record.id)">确认已打款</a-button>
             <span v-else class="text-gray">-</span>
           </template>
         </a-table-column>
@@ -52,8 +53,8 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { Message } from '@arco-design/web-vue'
-import { getSettlements, approveSettlement, rejectSettlement } from '@/api/admin'
+import { Message, Modal } from '@arco-design/web-vue'
+import { getSettlements, approveSettlement, rejectSettlement, completeSettlement } from '@/api/admin'
 import type { Settlement } from '@/api/types'
 
 const loading = ref(false)
@@ -70,12 +71,12 @@ const rejectId = ref(0)
 const rejectRemark = ref('')
 
 const statusText = (status: number) => {
-  const map: Record<number, string> = { 0: '待审核', 1: '已通过', 2: '已驳回' }
+  const map: Record<number, string> = { 0: '待审核', 1: '待打款', 2: '已完成', 3: '已驳回' }
   return map[status] || '未知'
 }
 
 const statusColor = (status: number) => {
-  const map: Record<number, string> = { 0: 'orange', 1: 'green', 2: 'red' }
+  const map: Record<number, string> = { 0: 'orange', 1: 'blue', 2: 'green', 3: 'red' }
   return map[status] || 'gray'
 }
 
@@ -110,6 +111,10 @@ const handleApprove = async (id: number) => {
   } catch (e) {
     // ignore
   }
+}
+
+const handleComplete = (id: number) => {
+  Modal.confirm({ title: '确认结算完成', content: '请确认已向该商户实际打款。本操作会扣除预留的冻结资金。', onOk: async () => { await completeSettlement(id); Message.success('结算已完成'); await fetchData() } })
 }
 
 const openRejectModal = (id: number) => {

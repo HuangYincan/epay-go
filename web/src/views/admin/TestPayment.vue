@@ -40,6 +40,7 @@
           </template>
         </a-form-item>
 
+        <a-form-item label="JSAPI付款人 OpenID（仅JSAPI需要）"><a-input v-model="form.openid" placeholder="填写此应用下付款人的OpenID" /></a-form-item>
         <a-form-item label="支付金额" required>
           <a-input-number
             v-model="form.amount"
@@ -157,6 +158,7 @@ const payResult = ref<any>(null)
 const qrcodeContainer = ref<HTMLElement>()
 
 const form = reactive({
+  openid: '',
   channel_id: undefined as number | undefined,
   pay_type: '',
   amount: 0.01
@@ -231,6 +233,7 @@ const handleTest = async () => {
     const res = await testPayment({
       channel_id: form.channel_id,
       amount: form.amount.toString(),
+      openid: form.openid || undefined,
       pay_type: payOption.payMethod || payOption.payType
     })
 

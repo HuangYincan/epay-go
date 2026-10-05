@@ -39,7 +39,7 @@ func ListRefunds(c *gin.Context) {
 
 // ProcessRefundRequest 处理退款请求
 type ProcessRefundRequest struct {
-	Success    bool   `json:"success" binding:"required"`
+	Success    *bool  `json:"success" binding:"required"`
 	FailReason string `json:"fail_reason"`
 }
 
@@ -72,7 +72,7 @@ func ProcessRefund(c *gin.Context) {
 	}
 
 	refundService := service.NewRefundService()
-	if err := refundService.ProcessRefund(refundNo, req.Success, req.FailReason); err != nil {
+	if err := refundService.ProcessRefund(refundNo, *req.Success, req.FailReason); err != nil {
 		response.Error(c, response.CodeServerError, err.Error())
 		return
 	}

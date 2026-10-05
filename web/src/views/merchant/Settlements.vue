@@ -80,12 +80,12 @@ const applyForm = reactive({
 })
 
 const statusText = (status: number) => {
-  const map: Record<number, string> = { 0: '待审核', 1: '已通过', 2: '已驳回' }
+  const map: Record<number, string> = { 0: '待审核', 1: '待打款', 2: '已完成', 3: '已驳回' }
   return map[status] || '未知'
 }
 
 const statusColor = (status: number) => {
-  const map: Record<number, string> = { 0: 'orange', 1: 'green', 2: 'red' }
+  const map: Record<number, string> = { 0: 'orange', 1: 'blue', 2: 'green', 3: 'red' }
   return map[status] || 'gray'
 }
 

@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 // ListSettlements 结算列表
 func ListSettlements(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -80,5 +79,19 @@ func RejectSettlement(c *gin.Context) {
 		return
 	}
 
+	response.Success(c, nil)
+}
+
+// CompleteSettlement records an administrator's confirmation of an actual payout.
+func CompleteSettlement(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.ParamError(c, "结算ID无效")
+		return
+	}
+	if err := service.NewSettlementService().Complete(id); err != nil {
+		response.Error(c, response.CodeParamError, err.Error())
+		return
+	}
 	response.Success(c, nil)
 }

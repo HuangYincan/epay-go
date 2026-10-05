@@ -3,9 +3,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -13,9 +13,11 @@ import (
 	"github.com/example/epay-go/internal/model"
 	"github.com/example/epay-go/internal/payment"
 	"github.com/example/epay-go/internal/repository"
+	"github.com/example/epay-go/pkg/safehttp"
 	"github.com/example/epay-go/pkg/utils"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type OrderService struct {
@@ -36,6 +38,7 @@ func NewOrderService() *OrderService {
 
 // CreateOrderRequest 创建订单请求
 type CreateOrderRequest struct {
+	ChannelID         int64             `json:"-"`
 	MerchantID        int64             `json:"-"`
 	OutTradeNo        string            `json:"out_trade_no" binding:"required"`
 	Amount            decimal.Decimal   `json:"money" binding:"required"`
@@ -60,96 +63,150 @@ type CreateOrderResponse struct {
 
 // Create 创建订单
 func (s *OrderService) Create(ctx context.Context, req *CreateOrderRequest) (*CreateOrderResponse, error) {
-	// 检查商户订单号是否重复
-	existOrder, _ := s.orderRepo.GetByOutTradeNo(req.MerchantID, req.OutTradeNo)
-	if existOrder != nil {
-		return nil, errors.New("商户订单号已存在")
+	if err := validateMoney(req.Amount); err != nil {
+		return nil, err
 	}
-
-	// 获取可用通道
+	if strings.TrimSpace(req.OutTradeNo) == "" || len(req.OutTradeNo) > 64 {
+		return nil, errors.New("商户订单号格式错误")
+	}
+	if req.MerchantNotifyURL != "" {
+		if err := safehttp.ValidateURL(ctx, req.MerchantNotifyURL); err != nil {
+			return nil, err
+		}
+	}
+	if req.ReturnURL != "" {
+		if _, err := safehttp.ParseURL(req.ReturnURL); err != nil {
+			return nil, err
+		}
+	}
 	channel, err := s.channelRepo.GetAvailableByPayType(req.PayType)
+	if req.ChannelID > 0 {
+		channel, err = s.channelRepo.GetByID(req.ChannelID)
+	}
 	if err != nil {
 		return nil, errors.New("暂无可用的支付通道")
 	}
-
-	// 创建支付适配器
-	adapter, err := payment.NewAdapter(channel.Plugin, channel.Config)
-	if err != nil {
-		log.Printf("create payment adapter failed: channel_id=%d plugin=%s err=%v", channel.ID, channel.Plugin, err)
-		return nil, fmt.Errorf("支付通道配置错误: %w", err)
+	method := payment.CanonicalMethod(channel.Plugin, req.PayMethod)
+	if method == "jsapi" && req.Extra["openid"] == "" {
+		return nil, errors.New("JSAPI支付必须提供openid")
 	}
-
-	// 生成订单号
-	tradeNo := utils.GenerateTradeNo()
-
-	// 计算手续费
-	fee := req.Amount.Mul(channel.Rate).Round(2)
-	realAmount := req.Amount
-
-	// 首次主动查单时间
+	extra, err := json.Marshal(req.Extra)
+	if err != nil {
+		return nil, err
+	}
 	firstQueryAt := FirstQueryAt(time.Now())
-
-	// 创建订单记录
-	order := &model.Order{
-		TradeNo:      tradeNo,
-		OutTradeNo:   req.OutTradeNo,
-		MerchantID:   req.MerchantID,
-		ChannelID:    channel.ID,
-		PayType:      req.PayType,
-		Amount:       req.Amount,
-		RealAmount:   realAmount,
-		Fee:          fee,
-		Name:         req.Name,
-		NotifyURL:    req.MerchantNotifyURL,
-		ReturnURL:    req.ReturnURL,
-		ClientIP:     req.ClientIP,
-		Status:       model.OrderStatusUnpaid,
-		NotifyStatus: model.NotifyStatusPending,
-		NextQueryAt:  &firstQueryAt,
-	}
-
-	if err := s.orderRepo.Create(order); err != nil {
-		return nil, err
-	}
-
-	// 调用支付接口
-	payMethod := req.PayMethod
-	if payMethod == "" {
-		payMethod = "scan" // 默认扫码
-	}
-
-	providerNotifyURL := req.NotifyURL
-	if req.PlatformBaseURL != "" {
-		providerNotifyURL = strings.TrimRight(req.PlatformBaseURL, "/") + "/api/pay/notify/" + channel.Plugin
-	}
-	// 通道配置了回调URL时才覆盖；未配置(空字符串)则完全走上面的 Host 拼接逻辑，行为不变
-	if channel.CallbackURL != "" {
-		providerNotifyURL = channel.CallbackURL
-	}
-	log.Printf("Provider notify url resolved: trade_no=%s channel=%s url=%s", tradeNo, channel.Plugin, providerNotifyURL)
-
-	payReq := &payment.CreateOrderRequest{
-		TradeNo:   tradeNo,
-		Amount:    realAmount,
-		Subject:   req.Name,
-		ClientIP:  req.ClientIP,
-		NotifyURL: providerNotifyURL,
-		ReturnURL: req.ReturnURL,
-		PayMethod: payMethod,
-		Extra:     req.Extra,
-	}
-
-	payResp, err := adapter.CreateOrder(ctx, payReq)
+	order := model.Order{TradeNo: utils.GenerateTradeNo(), OutTradeNo: req.OutTradeNo, MerchantID: req.MerchantID, ChannelID: channel.ID, PayType: req.PayType, Amount: req.Amount, RealAmount: req.Amount, Name: req.Name, NotifyURL: req.MerchantNotifyURL, ReturnURL: req.ReturnURL, ClientIP: req.ClientIP, PayMethod: method, Extra: string(extra), NextQueryAt: &firstQueryAt}
+	err = database.Get().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(channel, channel.ID).Error; err != nil {
+			return err
+		}
+		if channel.Status != 1 {
+			return errors.New("支付通道已禁用")
+		}
+		if err := payment.CheckMethod(channel.Plugin, channel.AppType, method); err != nil {
+			return err
+		}
+		merchant, err := s.merchantRepo.GetByIDForUpdate(tx, req.MerchantID)
+		if err != nil {
+			return err
+		}
+		if merchant.Status != 1 {
+			return errors.New("商户已被禁用")
+		}
+		var count int64
+		if err := tx.Model(&model.Order{}).Where("merchant_id = ? AND out_trade_no = ?", req.MerchantID, req.OutTradeNo).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("商户订单号已存在")
+		}
+		if channel.DailyLimit.IsPositive() {
+			now := time.Now()
+			start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+			var total decimal.Decimal
+			if err := tx.Model(&model.Order{}).Select("COALESCE(SUM(amount),0)").Where("channel_id = ? AND created_at >= ?", channel.ID, start).Scan(&total).Error; err != nil {
+				return err
+			}
+			if total.Add(req.Amount).GreaterThan(channel.DailyLimit) {
+				return errors.New("通道日限额不足")
+			}
+		}
+		if channel.Rate.IsNegative() || channel.Rate.GreaterThanOrEqual(decimal.NewFromInt(100)) {
+			return errors.New("支付通道费率无效")
+		}
+		order.Fee = req.Amount.Mul(channel.Rate).Div(decimal.NewFromInt(100)).Round(2)
+		// Store the resolved callback rather than trusting a different Host on checkout retries.
+		order.ProviderNotifyURL = req.NotifyURL
+		if req.PlatformBaseURL != "" {
+			order.ProviderNotifyURL = strings.TrimRight(req.PlatformBaseURL, "/") + fmt.Sprintf("/api/pay/notify/%s/%d", channel.Plugin, channel.ID)
+		}
+		if channel.CallbackURL != "" {
+			order.ProviderNotifyURL = channel.CallbackURL
+		}
+		return tx.Create(&order).Error
+	})
 	if err != nil {
 		return nil, err
 	}
+	return s.Checkout(ctx, order.TradeNo, req.PayType)
+}
 
-	return &CreateOrderResponse{
-		TradeNo:   tradeNo,
-		PayType:   payResp.PayType,
-		PayURL:    payResp.PayURL,
-		PayParams: payResp.PayParams,
-	}, nil
+// Checkout always uses the original channel, amount and payer. Cache the result and serialize retries.
+func (s *OrderService) Checkout(ctx context.Context, no, payType string) (*CreateOrderResponse, error) {
+	var result CreateOrderResponse
+	err := database.Get().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		order, err := s.orderRepo.GetByTradeNoForUpdate(tx, no)
+		if err != nil {
+			return err
+		}
+		if order.Status != model.OrderStatusUnpaid {
+			return errors.New("订单已支付或已退款")
+		}
+		if payType != "" && payType != order.PayType {
+			return errors.New("请使用订单原支付方式")
+		}
+		result = CreateOrderResponse{TradeNo: order.TradeNo, PayType: order.CheckoutType, PayURL: order.PayURL, PayParams: order.PayParams}
+		if order.CheckoutType != "" {
+			return nil
+		}
+		var channel model.Channel
+		if err := tx.First(&channel, order.ChannelID).Error; err != nil {
+			return err
+		}
+		if channel.Status != 1 {
+			return errors.New("通道已禁用，无法重新发起支付")
+		}
+		if err := payment.CheckMethod(channel.Plugin, channel.AppType, order.PayMethod); err != nil {
+			return err
+		}
+		adapter, err := payment.NewAdapter(channel.Plugin, channel.Config)
+		if err != nil {
+			return fmt.Errorf("支付通道配置错误: %w", err)
+		}
+		var extra map[string]string
+		if order.Extra != "" {
+			if err := json.Unmarshal([]byte(order.Extra), &extra); err != nil {
+				return err
+			}
+		}
+		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		response, err := adapter.CreateOrder(requestCtx, &payment.CreateOrderRequest{TradeNo: no, Amount: order.RealAmount, Subject: order.Name, ClientIP: order.ClientIP, NotifyURL: order.ProviderNotifyURL, ReturnURL: order.ReturnURL, PayMethod: order.PayMethod, Extra: extra})
+		if err != nil {
+			return err
+		}
+		if response == nil {
+			return errors.New("支付响应为空")
+		}
+		result.PayType = response.PayType
+		result.PayURL = response.PayURL
+		result.PayParams = response.PayParams
+		return tx.Model(order).Updates(map[string]any{"checkout_type": response.PayType, "pay_url": response.PayURL, "pay_params": response.PayParams}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // GetByTradeNo 根据订单号获取订单
@@ -168,7 +225,7 @@ func (s *OrderService) List(page, pageSize int, merchantID *int64, status *int8)
 }
 
 // ProcessPayNotify 处理支付回调
-func (s *OrderService) ProcessPayNotify(tradeNo, apiTradeNo, buyer string, amount decimal.Decimal) error {
+func (s *OrderService) ProcessPayNotify(tradeNo, apiTradeNo, buyer string, amount decimal.Decimal, channelID ...int64) error {
 	// 回调与主动查单共享此入口。数据库行锁保证跨进程幂等，订单、余额、
 	// 流水必须使用同一事务；Transaction 会返回 Begin/Commit 错误并回滚异常。
 	return database.Get().Transaction(func(tx *gorm.DB) error {
@@ -181,6 +238,9 @@ func (s *OrderService) ProcessPayNotify(tradeNo, apiTradeNo, buyer string, amoun
 		}
 		if !order.Amount.Equal(amount) {
 			return errors.New("支付金额不匹配")
+		}
+		if len(channelID) > 0 && order.ChannelID != channelID[0] {
+			return errors.New("支付通知通道不匹配")
 		}
 		switch order.Status {
 		case model.OrderStatusPaid, model.OrderStatusRefund:
@@ -212,85 +272,34 @@ func (s *OrderService) GetTodayStats(merchantID *int64) (int64, decimal.Decimal,
 }
 
 // CreateTestOrder 创建测试订单
-func (s *OrderService) CreateTestOrder(channelID int64, amount, payType, platformBaseURL string) (*model.Order, interface{}, error) {
-	// 获取通道信息
+func (s *OrderService) CreateTestOrder(channelID int64, amount, method, base string, extra ...map[string]string) (*model.Order, interface{}, error) {
 	channel, err := s.channelRepo.GetByID(channelID)
 	if err != nil {
-		return nil, nil, errors.New("通道不存在")
+		return nil, nil, err
 	}
-
-	// 选择一个真实存在的商户挂载测试订单，避免外键约束失败
 	merchant, err := s.merchantRepo.GetFirst()
 	if err != nil {
-		return nil, nil, errors.New("请先创建一个商户再进行测试支付")
+		return nil, nil, errors.New("请先创建一个商户再测试支付")
 	}
-
-	// 解析金额
-	amountDecimal, err := decimal.NewFromString(amount)
-	if err != nil {
-		return nil, nil, errors.New("金额格式错误")
-	}
-
-	// 创建测试订单（挂载到现有商户）
-	tradeNo := utils.GenerateTradeNo()
-	firstQueryAt := FirstQueryAt(time.Now())
-	order := &model.Order{
-		TradeNo:      tradeNo,
-		OutTradeNo:   "TEST" + tradeNo,
-		MerchantID:   merchant.ID,
-		ChannelID:    channelID,
-		PayType:      payType,
-		Amount:       amountDecimal,
-		RealAmount:   amountDecimal,
-		Fee:          decimal.Zero,
-		Name:         "测试支付",
-		NotifyURL:    "",
-		ReturnURL:    "",
-		Status:       model.OrderStatusUnpaid,
-		NotifyStatus: model.NotifyStatusPending,
-		NextQueryAt:  &firstQueryAt,
-	}
-
-	if err := s.orderRepo.Create(order); err != nil {
-		return nil, nil, err
-	}
-
-	// 创建支付适配器
-	adapter, err := payment.NewAdapter(channel.Plugin, channel.Config)
-	if err != nil {
-		log.Printf("create test payment adapter failed: channel_id=%d plugin=%s err=%v", channel.ID, channel.Plugin, err)
-		return nil, nil, fmt.Errorf("支付通道配置错误: %w", err)
-	}
-
-	// 调用支付接口
-	providerNotifyURL := strings.TrimRight(platformBaseURL, "/") + "/api/pay/notify/" + channel.Plugin
-	if channel.CallbackURL != "" {
-		providerNotifyURL = channel.CallbackURL
-	}
-	log.Printf("Provider notify url resolved: trade_no=%s channel=%s url=%s", tradeNo, channel.Plugin, providerNotifyURL)
-	payReq := &payment.CreateOrderRequest{
-		TradeNo:   tradeNo,
-		Amount:    amountDecimal,
-		Subject:   "测试支付",
-		ClientIP:  "127.0.0.1",
-		NotifyURL: providerNotifyURL,
-		ReturnURL: "",
-		PayMethod: payType,
-		Extra:     nil,
-	}
-
-	ctx := context.Background()
-	payResp, err := adapter.CreateOrder(ctx, payReq)
+	money, err := decimal.NewFromString(amount)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	// 返回订单和支付数据
-	payData := map[string]interface{}{
-		"pay_type":   payResp.PayType,
-		"pay_url":    payResp.PayURL,
-		"pay_params": payResp.PayParams,
+	family := "alipay"
+	if channel.Plugin == "wechat" || channel.Plugin == "hf-wxpay" {
+		family = "wxpay"
 	}
-
-	return order, payData, nil
+	var params map[string]string
+	if len(extra) > 0 {
+		params = extra[0]
+	}
+	response, err := s.Create(context.Background(), &CreateOrderRequest{ChannelID: channelID, MerchantID: merchant.ID, OutTradeNo: "TEST" + utils.GenerateTradeNo(), Amount: money, Name: "测试支付", PayType: family, PayMethod: method, PlatformBaseURL: base, ClientIP: "127.0.0.1", Extra: params})
+	if err != nil {
+		return nil, nil, err
+	}
+	order, err := s.GetByTradeNo(response.TradeNo)
+	if err != nil {
+		return nil, nil, err
+	}
+	return order, map[string]interface{}{"pay_type": response.PayType, "pay_url": response.PayURL, "pay_params": response.PayParams}, nil
 }

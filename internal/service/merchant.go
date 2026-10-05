@@ -112,8 +112,7 @@ func (s *MerchantService) UpdateStatus(id int64, status int8) error {
 	if err != nil {
 		return err
 	}
-	merchant.Status = status
-	return s.repo.Update(merchant)
+	return s.repo.UpdateFields(merchant.ID, map[string]interface{}{"status": status})
 }
 
 // ResetAPIKey 重置API密钥
@@ -123,7 +122,7 @@ func (s *MerchantService) ResetAPIKey(id int64) (string, error) {
 		return "", err
 	}
 	merchant.ApiKey = utils.GenerateAPIKey()
-	if err := s.repo.Update(merchant); err != nil {
+	if err := s.repo.UpdateFields(id, map[string]interface{}{"api_key": merchant.ApiKey}); err != nil {
 		return "", err
 	}
 	return merchant.ApiKey, nil
@@ -146,5 +145,9 @@ func (s *MerchantService) UpdatePassword(id int64, oldPassword, newPassword stri
 	}
 
 	merchant.Password = hashedPassword
-	return s.repo.Update(merchant)
+	return s.repo.UpdateFields(id, map[string]interface{}{"password": hashedPassword})
+}
+
+func (s *MerchantService) UpdateProfile(id int64, email, phone string) error {
+	return s.repo.UpdateFields(id, map[string]interface{}{"email": email, "phone": phone})
 }

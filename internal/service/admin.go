@@ -39,8 +39,8 @@ func (s *AdminService) InitDefaultAdmin() error {
 	}
 
 	password := os.Getenv("DEFAULT_ADMIN_PASSWORD")
-	if password == "" {
-		password = "ChangeMe123!"
+	if len(password) < 12 || password == "ChangeMe123!" {
+		return errors.New("首次启动必须设置至少12字节的 DEFAULT_ADMIN_PASSWORD，不能使用示例密码")
 	}
 
 	hashedPassword, err := utils.HashPassword(password)

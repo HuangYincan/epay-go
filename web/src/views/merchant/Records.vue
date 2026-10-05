@@ -51,7 +51,13 @@ const typeText = (type: string) => {
   const map: Record<string, string> = {
     order: '订单收入',
     settle: '结算支出',
-    refund: '退款',
+    refund: '退款完成',
+    order_income: '订单收入',
+    refund_freeze: '退款资金预留',
+    refund_unfreeze: '退款预留退回',
+    settle_freeze: '结算资金预留',
+    settle_unfreeze: '结算预留退回',
+    settle_complete: '结算完成',
     adjust: '调账',
   }
   return map[type] || type

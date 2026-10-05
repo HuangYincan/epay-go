@@ -42,6 +42,10 @@ func QueryOrder(c *gin.Context) {
 		return
 	}
 	merchant := resolved.Merchant
+	if merchant.Status != 1 {
+		response.Forbidden(c, "商户已被禁用")
+		return
+	}
 
 	// 验证签名
 	params := url.Values{}
@@ -59,7 +63,7 @@ func QueryOrder(c *gin.Context) {
 	}
 
 	// 查询订单
-	var order interface{}
+	var order *model.Order
 	if req.TradeNo != "" {
 		order, err = orderService.GetByTradeNo(req.TradeNo)
 	} else {
@@ -67,6 +71,10 @@ func QueryOrder(c *gin.Context) {
 	}
 
 	if err != nil {
+		response.NotFound(c, "订单不存在")
+		return
+	}
+	if order.MerchantID != merchant.ID {
 		response.NotFound(c, "订单不存在")
 		return
 	}
@@ -91,10 +99,10 @@ func PublicOrderStatus(c *gin.Context) {
 
 	paid := order.Status == model.OrderStatusPaid
 	response.Success(c, gin.H{
-		"trade_no":    order.TradeNo,
+		"trade_no":     order.TradeNo,
 		"out_trade_no": order.OutTradeNo,
-		"status":      order.Status,
-		"paid":        paid,
-		"return_url":  order.ReturnURL,
+		"status":       order.Status,
+		"paid":         paid,
+		"return_url":   order.ReturnURL,
 	})
 }

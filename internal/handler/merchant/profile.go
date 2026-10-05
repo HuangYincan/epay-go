@@ -58,7 +58,10 @@ func UpdateProfile(c *gin.Context) {
 	merchant.Email = req.Email
 	merchant.Phone = req.Phone
 
-	// TODO: 保存更新
+	if err := merchantService.UpdateProfile(merchantID, merchant.Email, merchant.Phone); err != nil {
+		response.ServerError(c, "保存资料失败")
+		return
+	}
 
 	response.Success(c, nil)
 }

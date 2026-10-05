@@ -53,6 +53,7 @@
         <a-form-item label="支付插件" required>
           <a-select
             v-model="form.plugin"
+            :disabled="isEdit"
             placeholder="请选择支付插件"
             @change="handlePluginChange"
           >
@@ -142,9 +143,9 @@
         <a-form-item label="费率(%)" required>
           <a-input-number
             v-model="form.rate"
-            :precision="2"
+            :precision="4"
             :min="0"
-            :max="100"
+            :max="99.9999"
             placeholder="如: 0.6"
           />
         </a-form-item>
@@ -274,13 +275,15 @@ const handleEdit = async (record: Channel) => {
     const res = await getPluginConfig(record.plugin)
     currentPluginConfig.value = res.data
   } catch (e) {
+    currentPluginConfig.value = null
     Message.error('加载插件配置失败')
+    return
   }
 
   form.name = record.name
   form.plugin = record.plugin
   form.pay_types = record.pay_types
-  form.app_types = record.app_type ? record.app_type.split(',') : []
+  form.app_types = (record.app_type || '').split(',').map(value => value.trim()).filter(value => currentPluginConfig.value?.pay_types.some(option => option.code === value))
   form.callback_url = record.callback_url || ''
   form.rate = Number(record.rate)
   form.daily_limit = Number(record.daily_limit)

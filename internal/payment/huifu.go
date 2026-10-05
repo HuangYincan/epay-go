@@ -349,7 +349,7 @@ func (h *HuifuAdapter) Refund(ctx context.Context, req *RefundRequest) (*RefundR
 	}
 
 	data := map[string]interface{}{
-		"req_date":   time.Now().Format("20060102"),
+		"req_date":   refundDate(req.RefundNo),
 		"req_seq_id": req.RefundNo,
 		"huifu_id":   h.config.HuifuID,
 		// 汇付 ord_amt 表示【本次退款金额】，不是原订单总额；传错会导致按原订单全额退款
@@ -434,4 +434,49 @@ func (h *HuifuAdapter) NotifySuccess() string {
 func init() {
 	Register("hf-wxpay", NewHuifuWechatAdapter)
 	Register("hf-alipay", NewHuifuAlipayAdapter)
+}
+
+func (h *HuifuAdapter) QueryRefund(ctx context.Context, req *RefundRequest) (*RefundResponse, error) {
+	date := refundDate(req.RefundNo)
+	data := map[string]interface{}{"huifu_id": h.config.HuifuID, "org_req_date": date, "org_req_seq_id": req.RefundNo}
+	var result struct {
+		huifuDataHeader
+		SubRespCode string `json:"sub_resp_code"`
+		TransStat   string `json:"trans_stat"`
+		OrdAmt      string `json:"ord_amt"`
+		HfSeqID     string `json:"hf_seq_id"`
+	}
+	if err := h.doRequest(ctx, "/v2/trade/payment/scanpay/refundquery", data, &result); err != nil {
+		return nil, err
+	}
+	if result.RespCode == "20000004" || result.SubRespCode == "20000004" {
+		return &RefundResponse{Status: "not_found"}, nil
+	}
+	if !result.isSuccess() {
+		return nil, errors.New(result.RespDesc)
+	}
+	status := "processing"
+	switch result.TransStat {
+	case "S":
+		status = "success"
+	case "F":
+		status = "failed"
+	}
+	amount := decimal.Zero
+	if status == "success" {
+		var err error
+		amount, err = decimal.NewFromString(result.OrdAmt)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &RefundResponse{RefundNo: req.RefundNo, ApiRefundNo: result.HfSeqID, Status: status, Amount: amount}, nil
+}
+func refundDate(no string) string {
+	if len(no) >= 9 && no[0] == 'R' {
+		if _, err := time.Parse("20060102", no[1:9]); err == nil {
+			return no[1:9]
+		}
+	}
+	return time.Now().Format("20060102")
 }

@@ -4,8 +4,8 @@
 
 ## 技术栈
 
-- 后端：Go、Gin、GORM、PostgreSQL、Redis
-- 前端：Vue 3、Vite、Arco Design
+- 后端：Go 1.26.8+、Gin、GORM、PostgreSQL、Redis
+- 前端：Node.js 22、Vue 3、Vite、Arco Design
 - 部署：Docker Compose、Nginx / Caddy
 
 ## 目录说明
@@ -26,7 +26,12 @@
 cp .env.example .env
 ```
 
-然后按需修改数据库、Redis、JWT、默认管理员和支付渠道配置。
+配置数据库与 Redis 的独立密码，并填写以下必需项：
+
+- `JWT_SECRET`：至少 32 字节的随机密钥，可用 `openssl rand -hex 32` 生成。
+- `DEFAULT_ADMIN_PASSWORD`：首次初始化需要至少 12 个字符的独立密码，可用 `openssl rand -base64 24` 生成。
+
+配置缺失或使用已知示例密钥时，后端会拒绝启动。支付渠道在管理后台配置。
 
 ### 2. 启动项目
 
@@ -128,6 +133,7 @@ docker compose up -d --build
 - **微信 JSAPI**
   - `type=WX_JSAPI`
   - 或 `type=wxpay&pay_method=jsapi`
+  - 必须同时传 `openid`，它和 `pay_method` 都需要参与 MD5 签名；OpenID 应属于通道配置的微信 AppID。
 
 - **支付宝扫码**
   - `type=ALIPAY_SCAN`
@@ -140,6 +146,21 @@ docker compose up -d --build
 - **支付宝网页支付**
   - `type=ALIPAY_WEB`
   - 或 `type=alipay&pay_method=web`
+
+## 账务与通道规则
+
+- **费率单位为百分数**：填 `0.6` 表示 `0.6%`，100 元订单手续费为 0.60 元。最终金额保留两位小数。
+- 日限额按服务器本地日期统计该通道当天已创建订单的总金额；未支付订单也占额度，以防并发下单超限。日限额 `0` 表示不限额。
+- 下单只允许通道启用的接口。收银台保留原订单的通道、支付方式和金额，重试返回已有支付参数。
+- 商户通知地址只允许公网 HTTP/HTTPS，禁止内网、回环、云元数据地址及重定向到这些地址。
+- 同一商户的订单号不可重复；数据库唯一索引提供最终约束。
+- 退款状态：`0` 待审核、`1` 成功、`2` 失败、`3` 上游处理中或结果待确认。审核通过先冻结可用余额；网络超时保留冻结资金，后台自动查单，不会把处理中当作成功。
+- 部分退款后订单继续保持已支付；累计成功退款等于订单金额时才标记已退款。尚未失败的退款申请也计入可退款额度。
+- 结算状态：`0` 待审核、`1` 待打款、`2` 已完成、`3` 已驳回。管理员实际打款后再点“确认已打款”；此按钮只完成账务结算，不向银行或支付宝发起转账。
+
+微信支付回调须先通过平台签名验证，再用 APIv3 密钥解密并校验 AppID、商户号及金额。后台可配置微信支付平台公钥及公钥 ID，或平台证书及其序列号；均留空时由 SDK 下载平台证书。新订单的回调地址包含通道 ID：`/api/pay/notify/{plugin}/{channel_id}`。旧地址仍兼容并按验签结果及订单所属通道匹配，禁用通道仍可接收历史订单回调。
+
+已有站点升级前，参见 [部署指南](DEPLOYMENT.md) 的升级核对步骤。
 
 ## 构建说明
 
@@ -172,5 +193,5 @@ EPAY_TEST_DATABASE_DSN='host=127.0.0.1 port=5432 user=epay_test password=test-on
   go test -race ./...
 ```
 
-测试用户需要创建 schema 的权限。每个测试创建并清理自己的 schema，不读取已有业务表。GitHub Actions 使用 PostgreSQL 16 自动执行这些测试、静态检查和后端构建。
+测试用户需要创建 schema 的权限。每个测试创建并清理自己的 schema，不读取已有业务表。GitHub Actions 使用 PostgreSQL 16 自动执行这些测试、静态检查、Go 漏洞扫描、前端依赖审计及前后端镜像构建。
 

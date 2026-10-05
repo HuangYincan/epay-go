@@ -11,8 +11,8 @@ import (
 type Order struct {
 	BaseModel
 	TradeNo      string          `gorm:"size:32;uniqueIndex;not null" json:"trade_no"`
-	OutTradeNo   string          `gorm:"size:64;not null" json:"out_trade_no"`
-	MerchantID   int64           `gorm:"index;not null" json:"merchant_id"`
+	OutTradeNo   string          `gorm:"size:64;not null;uniqueIndex:idx_merchant_order" json:"out_trade_no"`
+	MerchantID   int64           `gorm:"index;not null;uniqueIndex:idx_merchant_order" json:"merchant_id"`
 	ChannelID    int64           `gorm:"index" json:"channel_id"`
 	PayType      string          `gorm:"size:20" json:"pay_type"`
 	Amount       decimal.Decimal `gorm:"type:decimal(12,2);not null" json:"amount"`
@@ -33,8 +33,14 @@ type Order struct {
 	PaidAt       *time.Time      `json:"paid_at"`
 
 	// 关联
-	Merchant *Merchant `gorm:"foreignKey:MerchantID" json:"merchant,omitempty"`
-	Channel  *Channel  `gorm:"foreignKey:ChannelID" json:"channel,omitempty"`
+	Merchant          *Merchant `gorm:"foreignKey:MerchantID" json:"-"`
+	Channel           *Channel  `gorm:"foreignKey:ChannelID" json:"-"`
+	PayMethod         string    `gorm:"size:20" json:"pay_method"`
+	PayURL            string    `gorm:"type:text" json:"-"`
+	PayParams         string    `gorm:"type:text" json:"-"`
+	ProviderNotifyURL string    `gorm:"size:512" json:"-"`
+	CheckoutType      string    `gorm:"size:20" json:"-"`
+	Extra             string    `gorm:"type:text" json:"-"`
 }
 
 func (Order) TableName() string {

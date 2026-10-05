@@ -18,5 +18,5 @@ redis:
   db: 0
 
 jwt:
-  secret: your_jwt_secret_here_change_in_production
+  secret: ""  # 必须设置至少32字节的随机密钥，或通过 JWT_SECRET 环境变量提供
   expire_hour: 168  # 7 days

@@ -98,8 +98,6 @@ func GetAlipayConfig() PluginConfig {
 			{Code: "page", Name: "电脑网站支付"},
 			{Code: "wap", Name: "手机网站支付"},
 			{Code: "qrcode", Name: "当面付扫码"},
-			{Code: "jsapi", Name: "当面付JS"},
-			{Code: "app", Name: "APP支付"},
 		},
 		Note: "选择可用的支付接口，只能选择已经签约的产品。",
 	}
@@ -113,6 +111,7 @@ func GetWechatConfig() PluginConfig {
 		Author:   "微信支付",
 		Link:     "https://pay.weixin.qq.com",
 		Inputs: []PluginConfigField{
+			{Key: "platform_public_key", Name: "微信支付平台公钥（公钥模式）", Type: "textarea", Required: false, Note: "平台公钥模式请同时填平台公钥ID；证书模式可填平台证书，留空时自动下载。"},
 			{
 				Key:         "app_id",
 				Name:        "公众号/小程序/开放平台AppID",
@@ -153,10 +152,10 @@ func GetWechatConfig() PluginConfig {
 			},
 			{
 				Key:         "platform_serial_no",
-				Name:        "平台证书序列号（可选）",
+				Name:        "平台证书序列号或平台公钥ID",
 				Type:        "input",
 				Required:    false,
-				Placeholder: "可留空（自动下载平台证书的场景需配合实现）",
+				Placeholder: "公钥模式填写PUB_KEY_ID_前缀的ID，证书模式可自动下载",
 			},
 			{
 				Key:         "platform_cert_content",
@@ -170,8 +169,6 @@ func GetWechatConfig() PluginConfig {
 			{Code: "native", Name: "扫码支付"},
 			{Code: "jsapi", Name: "公众号支付"},
 			{Code: "h5", Name: "H5支付"},
-			{Code: "miniapp", Name: "小程序支付"},
-			{Code: "app", Name: "APP支付"},
 		},
 		BindWxmp: true,
 		BindWxa:  true,

@@ -1,91 +1,87 @@
-// internal/handler/payment/notify.go
 package payment
 
 import (
+	"bytes"
+	"github.com/example/epay-go/internal/database"
+	"github.com/example/epay-go/internal/model"
+	pay "github.com/example/epay-go/internal/payment"
+	"github.com/example/epay-go/internal/service"
+	"github.com/gin-gonic/gin"
 	"io"
 	"log"
 	"net/http"
-
-	"github.com/example/epay-go/internal/model"
-	intPayment "github.com/example/epay-go/internal/payment"
-	"github.com/example/epay-go/internal/repository"
-	"github.com/example/epay-go/internal/service"
-	"github.com/gin-gonic/gin"
+	"strconv"
 )
 
-// HandleNotify 处理支付回调
 func HandleNotify(c *gin.Context) {
-	channelPlugin := c.Param("channel")
-
-	channelRepo := repository.NewChannelRepository()
-	orderService := service.NewOrderService()
-	notifyService := service.NewNotifyService()
-
-	// 获取通道配置
-	channel, err := channelRepo.GetByPluginAndPayType(channelPlugin, "")
-	if err != nil {
-		log.Printf("Channel not found: %s", channelPlugin)
-		c.String(http.StatusOK, "fail")
+	plugin := c.Param("channel")
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 65537))
+	if err != nil || len(body) > 65536 {
+		c.String(http.StatusBadRequest, "fail")
 		return
 	}
-
-	// 创建适配器
-	adapter, err := intPayment.NewAdapter(channel.Plugin, channel.Config)
-	if err != nil {
-		log.Printf("Create adapter failed: %v", err)
-		c.String(http.StatusOK, "fail")
-		return
-	}
-
-	// 解析回调
-	result, err := adapter.ParseNotify(c.Request.Context(), c.Request)
-	if err != nil {
-		log.Printf("Parse notify failed: %v", err)
-		c.String(http.StatusOK, "fail")
-		return
-	}
-
-	// 处理支付结果
-	if result.Status == "success" {
-		if err := orderService.ProcessPayNotify(result.TradeNo, result.ApiTradeNo, result.Buyer, result.Amount); err != nil {
-			log.Printf("Process notify failed: %v", err)
-			c.String(http.StatusOK, "fail")
+	var channels []model.Channel
+	query := database.Get().Where("plugin = ?", plugin)
+	if value := c.Param("channel_id"); value != "" {
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || id <= 0 {
+			c.String(http.StatusBadRequest, "fail")
 			return
 		}
-
-		// 发送商户通知
-		order, _ := orderService.GetByTradeNo(result.TradeNo)
-		if order != nil && order.Status == model.OrderStatusPaid {
-			go notifyService.SendNotify(order)
-		}
+		query = query.Where("id = ?", id)
 	}
-
-	// 返回成功响应
-	c.String(http.StatusOK, adapter.NotifySuccess())
+	// Disabled channels still need to settle payments initiated before they were disabled.
+	if err := query.Order("id").Limit(100).Find(&channels).Error; err != nil {
+		c.String(http.StatusOK, "fail")
+		return
+	}
+	svc := service.NewOrderService()
+	for _, channel := range channels {
+		adapter, err := pay.NewAdapter(channel.Plugin, channel.Config)
+		if err != nil {
+			continue
+		}
+		req := c.Request.Clone(c.Request.Context())
+		req.Body = io.NopCloser(bytes.NewReader(body))
+		req.Form = nil
+		req.PostForm = nil
+		result, err := adapter.ParseNotify(req.Context(), req)
+		if err != nil || result == nil {
+			continue
+		}
+		order, err := svc.GetByTradeNo(result.TradeNo)
+		if err != nil || order.ChannelID != channel.ID {
+			continue
+		}
+		if result.Status == "success" {
+			if err := svc.ProcessPayNotify(result.TradeNo, result.ApiTradeNo, result.Buyer, result.Amount, channel.ID); err != nil {
+				log.Printf("Process payment notification: %v", err)
+				c.String(http.StatusOK, "fail")
+				return
+			}
+			if paid, err := svc.GetByTradeNo(result.TradeNo); err == nil && paid.Status == model.OrderStatusPaid {
+				go service.NewNotifyService().SendNotify(paid)
+			}
+		}
+		if channel.Plugin == "wechat" {
+			c.Data(http.StatusOK, "application/json", []byte(adapter.NotifySuccess()))
+		} else {
+			c.String(http.StatusOK, adapter.NotifySuccess())
+		}
+		return
+	}
+	c.String(http.StatusOK, "fail")
 }
 
-// HandleReturn 处理同步跳转
 func HandleReturn(c *gin.Context) {
-	// 从参数获取订单号
-	tradeNo := c.Query("out_trade_no")
-	if tradeNo == "" {
-		// 尝试从 body 读取
-		body, _ := io.ReadAll(c.Request.Body)
-		log.Printf("Return body: %s", string(body))
-	}
-
-	orderService := service.NewOrderService()
-	order, err := orderService.GetByTradeNo(tradeNo)
+	order, err := service.NewOrderService().GetByTradeNo(c.Query("out_trade_no"))
 	if err != nil {
 		c.Redirect(http.StatusFound, "/")
 		return
 	}
-
-	// 跳转到商户 return_url
 	if order.ReturnURL != "" {
 		c.Redirect(http.StatusFound, order.ReturnURL)
 		return
 	}
-
-	c.String(http.StatusOK, "支付完成")
+	c.Redirect(http.StatusFound, "/cashier/"+order.TradeNo)
 }

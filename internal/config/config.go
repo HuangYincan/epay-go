@@ -2,7 +2,9 @@
 package config
 
 import (
+	"fmt"
 	"github.com/spf13/viper"
+	"strings"
 )
 
 type Config struct {
@@ -53,6 +55,7 @@ func Load(path string) error {
 	viper.BindEnv("database.user", "DB_USER")
 	viper.BindEnv("database.password", "DB_PASSWORD")
 	viper.BindEnv("database.dbname", "DB_NAME")
+	viper.BindEnv("database.sslmode", "DB_SSLMODE")
 	viper.BindEnv("redis.host", "REDIS_HOST")
 	viper.BindEnv("redis.port", "REDIS_PORT")
 	viper.BindEnv("redis.password", "REDIS_PASSWORD")
@@ -67,7 +70,26 @@ func Load(path string) error {
 	if err := viper.Unmarshal(Cfg); err != nil {
 		return err
 	}
+	if err := ValidateJWT(Cfg.JWT); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func ValidateJWT(cfg JWTConfig) error {
+	known := []string{"your-secret-key", "your-super-secret-key-change-in-production", "your_jwt_secret_here_change_in_production"}
+	if len(cfg.Secret) < 32 || strings.TrimSpace(cfg.Secret) != cfg.Secret {
+		return fmt.Errorf("JWT_SECRET 必须设置为至少32字节的随机密钥")
+	}
+	for _, secret := range known {
+		if cfg.Secret == secret {
+			return fmt.Errorf("JWT_SECRET 不得使用示例值")
+		}
+	}
+	if cfg.ExpireHour <= 0 {
+		return fmt.Errorf("JWT有效期必须大于零")
+	}
 	return nil
 }
 

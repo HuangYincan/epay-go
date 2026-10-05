@@ -1,7 +1,6 @@
 package merchant
 
 import (
-	"context"
 	"strings"
 
 	"github.com/example/epay-go/internal/middleware"
@@ -13,8 +12,9 @@ import (
 )
 
 type TestPaymentRequest struct {
+	OpenID    string `json:"openid"`
 	Amount    string `json:"amount" binding:"required"`
-	PayType   string `json:"pay_type" binding:"required"`              // alipay, wxpay
+	PayType   string `json:"pay_type" binding:"required"` // alipay, wxpay
 	PayMethod string `json:"pay_method" binding:"omitempty,oneof=scan native h5 jsapi web"`
 }
 
@@ -38,18 +38,19 @@ func TestPayment(c *gin.Context) {
 
 	outTradeNo := "MTEST" + utils.GenerateTradeNo()
 	orderReq := &service.CreateOrderRequest{
-		MerchantID:        merchantID,
-		OutTradeNo:        outTradeNo,
-		Amount:            amount,
-		Name:              "商户测试支付",
-		PayType:           req.PayType,
-		PlatformBaseURL:   baseURL,
-		ClientIP:          utils.GetClientIP(c),
-		PayMethod:         req.PayMethod,
+		MerchantID:      merchantID,
+		OutTradeNo:      outTradeNo,
+		Amount:          amount,
+		Name:            "商户测试支付",
+		PayType:         req.PayType,
+		PlatformBaseURL: baseURL,
+		ClientIP:        utils.GetClientIP(c),
+		PayMethod:       req.PayMethod,
+		Extra:           map[string]string{"openid": req.OpenID},
 	}
 
 	orderService := service.NewOrderService()
-	orderResp, err := orderService.Create(context.Background(), orderReq)
+	orderResp, err := orderService.Create(c.Request.Context(), orderReq)
 	if err != nil {
 		response.Error(c, response.CodeServerError, err.Error())
 		return
@@ -86,4 +87,3 @@ func getBaseURL(c *gin.Context) string {
 	host = strings.TrimSpace(host)
 	return scheme + "://" + host
 }
-

@@ -16,6 +16,7 @@ import (
 
 	"github.com/example/epay-go/internal/model"
 	"github.com/example/epay-go/internal/repository"
+	"github.com/example/epay-go/pkg/safehttp"
 )
 
 type NotifyService struct {
@@ -28,9 +29,7 @@ func NewNotifyService() *NotifyService {
 	return &NotifyService{
 		orderRepo:    repository.NewOrderRepository(),
 		merchantRepo: repository.NewMerchantRepository(),
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		httpClient:   safehttp.NewClient(),
 	}
 }
 
@@ -138,6 +137,9 @@ func (s *NotifyService) generateSign(params url.Values, key string) string {
 
 // doNotify 执行通知请求
 func (s *NotifyService) doNotify(notifyURL string, params url.Values) bool {
+	if err := safehttp.ValidateURL(context.Background(), notifyURL); err != nil {
+		return false
+	}
 	// 构建完整URL
 	fullURL := notifyURL
 	if strings.Contains(notifyURL, "?") {
@@ -153,12 +155,15 @@ func (s *NotifyService) doNotify(notifyURL string, params url.Values) bool {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4097))
+	if err != nil || len(body) > 4096 {
+		return false
+	}
 	response := strings.ToLower(strings.TrimSpace(string(body)))
 	log.Printf("Merchant notify response: url=%s status=%d body=%s", notifyURL, resp.StatusCode, strings.TrimSpace(string(body)))
 
 	// 检查响应是否为 success
-	return response == "success"
+	return resp.StatusCode >= 200 && resp.StatusCode < 300 && response == "success"
 }
 
 // StartNotifyWorker 启动通知工作协程

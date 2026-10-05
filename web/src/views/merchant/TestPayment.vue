@@ -9,6 +9,7 @@
           </a-select>
         </a-form-item>
 
+        <a-form-item label="JSAPI付款人 OpenID（仅JSAPI需要）"><a-input v-model="form.openid" placeholder="填写此应用下付款人的OpenID" /></a-form-item>
         <a-form-item label="支付金额" required>
           <a-input-number
             v-model="form.amount"
@@ -94,6 +95,7 @@ const qrcodeContainer = ref<HTMLElement>()
 const paymentOptions = getPaymentOptionsByProvider('wechat').concat(getPaymentOptionsByProvider('alipay'))
 
 const form = reactive({
+  openid: '',
   pay_type: '',
   amount: 0.01
 })
@@ -124,6 +126,7 @@ const handleTest = async () => {
     }
     const res = await testPayment({
       amount: form.amount.toString(),
+      openid: form.openid || undefined,
       pay_type: payOption.payType,
       pay_method: payOption.payMethod || undefined
     })
