@@ -85,8 +85,8 @@ func TestHuifuSignVerifyRoundTrip(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "jspay"):
 			respData, _ = json.Marshal(map[string]interface{}{
-				"resp_code": "00000000",
-				"resp_desc": "交易成功",
+				"resp_code": "00000100",
+				"resp_desc": "下单成功",
 				"qr_code":   "weixin://wxpay/testqrcode",
 			})
 		case strings.Contains(r.URL.Path, "query"):
@@ -206,7 +206,7 @@ func TestHuifuSignVerifyRoundTrip(t *testing.T) {
 	// 4. 异步通知：验证 form-encoded resp_data+sign 的验签与解析
 	notifyData, _ := json.Marshal(map[string]interface{}{
 		"resp_code": "00000000", "resp_desc": "成功",
-		"req_seq_id": tradeNo, "hf_seq_id": "hf_seq_001",
+		"req_seq_id": tradeNo, "hf_seq_id": "hf_seq_001", "huifu_id": cfg.HuifuID,
 		"trans_amt": "1.00", "trans_stat": "S",
 	})
 	notifySign, err := h.sign(notifyData)
@@ -236,6 +236,20 @@ func TestHuifuSignVerifyRoundTrip(t *testing.T) {
 	if _, err := h.ParseNotify(context.Background(), badReq); err == nil {
 		t.Fatal("tampered signature should fail verification, but ParseNotify succeeded")
 	}
+	// A platform signature can be valid for another merchant using the same public key.
+	for _, merchant := range []string{"", "another-merchant"} {
+		raw, _ := json.Marshal(map[string]string{"req_seq_id": tradeNo, "hf_seq_id": "hf_seq_001", "huifu_id": merchant, "trans_amt": "1.00", "trans_stat": "S"})
+		signature, err := h.sign(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := url.Values{"resp_data": {string(raw)}, "sign": {signature}}
+		req := httptest.NewRequest(http.MethodPost, "/notify", strings.NewReader(body.Encode()))
+		if _, err := h.ParseNotify(context.Background(), req); err == nil {
+			t.Fatal("accepted a signed callback for another merchant")
+		}
+	}
+
 }
 
 // TestHuifuRefundAmount 回归测试：汇付退款必须把【本次退款金额】传给 ord_amt，
@@ -293,5 +307,127 @@ func TestHuifuRefundAmount(t *testing.T) {
 	}
 	if gotOrdAmt != "0.01" {
 		t.Fatalf("ord_amt 传给汇付的是 %q，应为本次退款金额 0.01（若为 0.06 则会全额退款）", gotOrdAmt)
+	}
+}
+
+func TestHuifuRefundQueryProtocol(t *testing.T) {
+	priv, pub := genPEMPair(t)
+	raw, _ := json.Marshal(HuifuConfig{SysID: "s", ProductID: "p", HuifuID: "fixture-merchant", MerchantPrivateKey: priv, HuifuPublicKey: pub})
+	adapter, err := NewHuifuWechatAdapter(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := adapter.(*HuifuAdapter)
+	for _, tc := range []struct {
+		code, state, amount, want string
+		badSign                   bool
+	}{
+		{"00000000", "S", "0.01", "success", false},
+		{"00000000", "P", "", "processing", false},
+		{"00000100", "P", "", "processing", false},
+		{"00000000", "F", "", "failed", false},
+		{"20000004", "", "", "not_found", false},
+		{"00000000", "S", "0.01", "", true},
+	} {
+		t.Run(tc.code+tc.state+tc.want, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v2/trade/payment/scanpay/refundquery" {
+					t.Errorf("wrong query path %s", r.URL.Path)
+				}
+				var envelope struct {
+					Data json.RawMessage `json:"data"`
+					Sign string          `json:"sign"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil {
+					t.Error(err)
+					return
+				}
+				if err := h.verify(envelope.Data, envelope.Sign); err != nil {
+					t.Error(err)
+					return
+				}
+				var request map[string]string
+				if err := json.Unmarshal(envelope.Data, &request); err != nil {
+					t.Error(err)
+					return
+				}
+				if request["org_req_seq_id"] != "R20260930fixture" || request["org_req_date"] != "20260930" || request["huifu_id"] != "fixture-merchant" {
+					t.Errorf("query lost original refund identity: %v", request)
+				}
+				data, _ := json.Marshal(map[string]string{"resp_code": tc.code, "trans_stat": tc.state, "ord_amt": tc.amount, "hf_seq_id": "gateway-refund"})
+				signature, err := h.sign(data)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if tc.badSign {
+					signature = "invalid"
+				}
+				json.NewEncoder(w).Encode(map[string]any{"data": json.RawMessage(data), "sign": signature})
+			}))
+			defer server.Close()
+			h.baseURL = server.URL
+			result, err := h.QueryRefund(context.Background(), &RefundRequest{TradeNo: "20260930fixture", RefundNo: "R20260930fixture", Amount: decimal.RequireFromString("0.01")})
+			if tc.badSign {
+				if err == nil {
+					t.Fatal("accepted unverified query response")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != tc.want {
+				t.Fatalf("status=%s want=%s", result.Status, tc.want)
+			}
+			if tc.want == "success" && !result.Amount.Equal(decimal.RequireFromString("0.01")) {
+				t.Fatal("query amount lost precision")
+			}
+		})
+	}
+}
+
+func TestHuifuRefundAcceptedPending(t *testing.T) {
+	priv, pub := genPEMPair(t)
+	raw, _ := json.Marshal(HuifuConfig{HuifuID: "fixture", MerchantPrivateKey: priv, HuifuPublicKey: pub})
+	adapter, err := NewHuifuWechatAdapter(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := adapter.(*HuifuAdapter)
+	for _, tc := range []struct {
+		code, state, want string
+		uncertain         bool
+	}{
+		{"00000100", "P", "processing", false},
+		{"90000000", "F", "failed", false},
+		{"90000000", "", "", true},
+	} {
+		t.Run(tc.code+tc.state, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				data, _ := json.Marshal(map[string]string{"resp_code": tc.code, "trans_stat": tc.state, "resp_desc": "fixture"})
+				signature, err := h.sign(data)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				json.NewEncoder(w).Encode(map[string]any{"data": json.RawMessage(data), "sign": signature})
+			}))
+			defer srv.Close()
+			h.baseURL = srv.URL
+			result, err := h.Refund(context.Background(), &RefundRequest{TradeNo: "20260930fixture", RefundNo: "R20260930fixture", Amount: decimal.RequireFromString("0.01"), TotalAmount: decimal.NewFromInt(1)})
+			if tc.uncertain {
+				if err == nil {
+					t.Fatal("uncertain error was treated as definitive rejection")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != tc.want {
+				t.Fatalf("status=%s want=%s", result.Status, tc.want)
+			}
+		})
 	}
 }

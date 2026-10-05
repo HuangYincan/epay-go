@@ -199,7 +199,8 @@ type huifuDataHeader struct {
 }
 
 func (h huifuDataHeader) isSuccess() bool {
-	return h.RespCode == "00000000"
+	// 00000100 means the request was accepted but the transaction is still processing.
+	return h.RespCode == "00000000" || h.RespCode == "00000100"
 }
 
 // resolveTradeType 按承接方式(family)+支付方式解析汇付的 trade_type
@@ -365,8 +366,12 @@ func (h *HuifuAdapter) Refund(ctx context.Context, req *RefundRequest) (*RefundR
 	if err := h.doRequest(ctx, "/v2/trade/payment/scanpay/refund", data, &result); err != nil {
 		return nil, err
 	}
-	if !result.isSuccess() {
+	if result.TransStat == "F" {
 		return &RefundResponse{RefundNo: req.RefundNo, Status: "failed", ErrorMessage: result.RespDesc}, nil
+	}
+	if !result.isSuccess() {
+		// An unclassified gateway error may be uncertain; preserve funds and query.
+		return nil, errors.New(result.RespDesc)
 	}
 
 	status := "processing"
@@ -403,6 +408,7 @@ func (h *HuifuAdapter) ParseNotify(ctx context.Context, r *http.Request) (*Notif
 
 	var n struct {
 		huifuDataHeader
+		HuifuID   string `json:"huifu_id"`
 		ReqSeqId  string `json:"req_seq_id"`
 		HfSeqId   string `json:"hf_seq_id"`
 		TransAmt  string `json:"trans_amt"`
@@ -412,12 +418,18 @@ func (h *HuifuAdapter) ParseNotify(ctx context.Context, r *http.Request) (*Notif
 		return nil, err
 	}
 
+	if n.HuifuID == "" || n.HuifuID != h.config.HuifuID {
+		return nil, errors.New("汇付通知商户不匹配")
+	}
 	status := "fail"
 	if n.TransStat == "S" {
 		status = "success"
 	}
 
-	amount, _ := decimal.NewFromString(n.TransAmt)
+	amount, err := decimal.NewFromString(n.TransAmt)
+	if err != nil || !amount.IsPositive() {
+		return nil, errors.New("汇付通知金额无效")
+	}
 	return &NotifyResult{
 		TradeNo:    n.ReqSeqId,
 		ApiTradeNo: n.HfSeqId,
