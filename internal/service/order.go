@@ -15,6 +15,7 @@ import (
 	"github.com/example/epay-go/internal/repository"
 	"github.com/example/epay-go/pkg/utils"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 type OrderService struct {
@@ -168,59 +169,41 @@ func (s *OrderService) List(page, pageSize int, merchantID *int64, status *int8)
 
 // ProcessPayNotify 处理支付回调
 func (s *OrderService) ProcessPayNotify(tradeNo, apiTradeNo, buyer string, amount decimal.Decimal) error {
-	order, err := s.orderRepo.GetByTradeNo(tradeNo)
-	if err != nil {
-		return errors.New("订单不存在")
-	}
-
-	if order.Status != model.OrderStatusUnpaid {
-		return nil // 订单已处理，跳过
-	}
-
-	// 验证金额
-	if !order.Amount.Equal(amount) {
-		return errors.New("支付金额不匹配")
-	}
-
-	// 开启事务
-	tx := database.Get().Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
+	// 回调与主动查单共享此入口。数据库行锁保证跨进程幂等，订单、余额、
+	// 流水必须使用同一事务；Transaction 会返回 Begin/Commit 错误并回滚异常。
+	return database.Get().Transaction(func(tx *gorm.DB) error {
+		order, err := s.orderRepo.GetByTradeNoForUpdate(tx, tradeNo)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("订单不存在")
+			}
+			return err
 		}
-	}()
+		if !order.Amount.Equal(amount) {
+			return errors.New("支付金额不匹配")
+		}
+		switch order.Status {
+		case model.OrderStatusPaid, model.OrderStatusRefund:
+			return nil // 正常重试无需再次入账，也不能将已退款订单恢复为已支付。
+		case model.OrderStatusUnpaid:
+		default:
+			return errors.New("订单状态不允许入账")
+		}
 
-	// 更新订单状态
-	if err := s.orderRepo.UpdatePayInfo(tradeNo, apiTradeNo, buyer); err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	// 获取商户信息
-	merchant, err := s.merchantRepo.GetByID(order.MerchantID)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	// 计算商户收入（订单金额 - 手续费）
-	income := order.Amount.Sub(order.Fee)
-	newBalance := merchant.Balance.Add(income)
-
-	// 更新商户余额
-	if err := s.merchantRepo.UpdateBalance(tx, merchant.ID, income.InexactFloat64()); err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	// 添加资金记录
-	if err := repository.AddBalanceRecord(tx, merchant.ID, model.RecordActionIncome, income, merchant.Balance, newBalance, "order_income", tradeNo); err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	tx.Commit()
-	return nil
+		merchant, err := s.merchantRepo.GetByIDForUpdate(tx, order.MerchantID)
+		if err != nil {
+			return err
+		}
+		income := order.Amount.Sub(order.Fee)
+		newBalance := merchant.Balance.Add(income)
+		if err := s.orderRepo.UpdatePayInfo(tx, tradeNo, apiTradeNo, buyer); err != nil {
+			return err
+		}
+		if err := s.merchantRepo.UpdateBalance(tx, merchant.ID, income); err != nil {
+			return err
+		}
+		return repository.AddBalanceRecord(tx, merchant.ID, model.RecordActionIncome, income, merchant.Balance, newBalance, "order_income", tradeNo)
+	})
 }
 
 // GetTodayStats 获取今日统计

@@ -12,7 +12,7 @@
 ### 1. 克隆项目
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/HuangYincan/epay-go.git
 cd epay-go
 ```
 
@@ -26,19 +26,21 @@ cp .env.example .env
 ### 3. 启动服务
 
 ```bash
-# 开发环境
-docker-compose up -d
+# 本机访问，或使用宿主机 Nginx / Cloudflare Tunnel 反代
+docker compose up -d --build
 
-# 生产环境
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Caddy 提供公网 HTTPS；仅适用于宿主机 80/443 未被占用
+docker compose -f docker-compose.prod.caddy.yml up -d --build
 ```
 
 ### 4. 访问服务
 
-- 前端: http://localhost
-- 后端 API: http://localhost:8080
-- 管理后台: http://localhost/admin/login
-- 商户中心: http://localhost/merchant/login
+- 默认 Compose 前端: http://127.0.0.1:8081
+- 默认 Compose 后端 API: http://127.0.0.1:8080
+- 默认 Compose 管理后台: http://127.0.0.1:8081/admin/login
+- 默认 Compose 商户中心: http://127.0.0.1:8081/merchant/login
+
+默认 Compose 的 PostgreSQL 和 Redis 不发布宿主机端口，前端和后端只监听宿主机回环。公网域名需反代到前端 `127.0.0.1:8081`，或参考 `deploy/nginx/host.prod.conf.example` 分别转发到前后端。Caddy 方案仅发布 80/443。支付回调路径需允许支付渠道访问。
 
 ## 常用命令
 

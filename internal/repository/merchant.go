@@ -4,7 +4,9 @@ package repository
 import (
 	"github.com/example/epay-go/internal/database"
 	"github.com/example/epay-go/internal/model"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type MerchantRepository struct {
@@ -25,6 +27,15 @@ func (r *MerchantRepository) GetByID(id int64) (*model.Merchant, error) {
 	var merchant model.Merchant
 	err := r.db.First(&merchant, id).Error
 	if err != nil {
+		return nil, err
+	}
+	return &merchant, nil
+}
+
+// GetByIDForUpdate 串行处理同一商户的余额变动，保证流水前后余额准确。
+func (r *MerchantRepository) GetByIDForUpdate(tx *gorm.DB, id int64) (*model.Merchant, error) {
+	var merchant model.Merchant
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&merchant, id).Error; err != nil {
 		return nil, err
 	}
 	return &merchant, nil
@@ -56,7 +67,7 @@ func (r *MerchantRepository) Update(merchant *model.Merchant) error {
 }
 
 // UpdateBalance 更新余额 (使用事务)
-func (r *MerchantRepository) UpdateBalance(tx *gorm.DB, id int64, amount float64) error {
+func (r *MerchantRepository) UpdateBalance(tx *gorm.DB, id int64, amount decimal.Decimal) error {
 	return tx.Model(&model.Merchant{}).Where("id = ?", id).
 		Update("balance", gorm.Expr("balance + ?", amount)).Error
 }
