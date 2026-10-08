@@ -38,6 +38,21 @@ func GetPluginConfigs() map[string]PluginConfig {
 		"wechat":    GetWechatConfig(),
 		"hf-wxpay":  GetHuifuWechatConfig(),
 		"hf-alipay": GetHuifuAlipayConfig(),
+		"epay":      GetEPayConfig(),
+	}
+}
+
+// GetEPayConfig returns the minimal personal QR channel configuration.
+func GetEPayConfig() PluginConfig {
+	return PluginConfig{
+		Name: "epay", ShowName: "EPay 个人收款码", Author: "epay-go",
+		Inputs: []PluginConfigField{
+			{Key: "wechat_qr", Name: "个人微信收款码", Type: "input", Required: true, Note: "填写二维码内容或可公开访问的二维码链接。"},
+			{Key: "alipay_qr", Name: "个人支付宝收款码", Type: "input", Required: true, Note: "填写二维码内容或可公开访问的二维码链接。"},
+			{Key: "notify_key", Name: "回调密钥", Type: "input", Required: true, Note: "二维码观察器回调必须使用 EPay MD5 签名；不要与商户 API Key 共用。"},
+		},
+		PayTypes: []PayTypeOption{{Code: "qrcode", Name: "个人收款码"}},
+		Note:     "个人二维码不会自行产生支付结果；只有带有效签名、订单号和金额的观察器回调才会入账。",
 	}
 }
 

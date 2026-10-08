@@ -113,6 +113,14 @@ docker compose up -d --build
 - `type` / `pay_type`：决定渠道，例如 `wxpay`、`alipay`
 - `pay_method`：决定场景，例如 `native`、`scan`、`h5`、`jsapi`、`web`
 
+### EPay 个人收款码
+
+如果只需要 New API 的 EPay 协议，可在后台新增 `epay` 通道并仅启用 `qrcode`，配置 `wechat_qr`、`alipay_qr` 和随机的 `notify_key`。下单时 `type=wxpay` 或 `type=alipay` 会展示对应的个人收款码；EPay 适配器不会把“展示二维码”当成支付成功。
+
+只有可信的二维码观察器才能调用 `/api/pay/notify/epay/{channel_id}`。回调使用与 EPay 相同的 MD5 规则，至少提交 `trade_no`、`money`、`api_trade_no`、`trade_status=TRADE_SUCCESS`、`sign_type=MD5` 和 `sign`，并使用通道的 `notify_key` 签名。服务端会在事务内锁定订单、核对金额和通道、更新余额及流水；相同流水号的重试幂等，其他流水号不能覆盖已入账订单。
+
+个人收款码没有支付平台查单或自动退款能力，观察器回调缺失时订单保持未支付。不要把 `notify_key` 或个人收款码内容与商户 API Key 共用。
+
 ### 关键规则
 
 - `type=native` **不允许单独使用**，因为无法判断是微信还是支付宝

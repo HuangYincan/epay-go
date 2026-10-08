@@ -9,7 +9,7 @@ func CanonicalMethod(plugin, method string) string {
 	method = strings.ToLower(strings.TrimSpace(method))
 	switch method {
 	case "", "scan", "qrcode", "native", "precreate":
-		if plugin == "alipay" {
+		if plugin == "alipay" || plugin == "epay" {
 			return "qrcode"
 		}
 		return "native"
@@ -26,7 +26,7 @@ func CanonicalMethod(plugin, method string) string {
 
 func CheckMethod(plugin, enabled, method string) error {
 	method = CanonicalMethod(plugin, method)
-	supported := map[string]string{"alipay": "qrcode,wap,page", "wechat": "native,h5,jsapi", "hf-alipay": "native", "hf-wxpay": "native,h5,jsapi"}
+	supported := map[string]string{"alipay": "qrcode,wap,page", "wechat": "native,h5,jsapi", "hf-alipay": "native", "hf-wxpay": "native,h5,jsapi", "epay": "qrcode"}
 	// Third-party adapters must still explicitly list their enabled methods.
 	if list, ok := supported[plugin]; ok && !containsMethod(plugin, list, method) {
 		return fmt.Errorf("支付通道不支持接口 %s", method)
