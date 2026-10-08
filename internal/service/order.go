@@ -270,6 +270,12 @@ func (s *OrderService) List(page, pageSize int, merchantID *int64, status *int8)
 
 // ProcessPayNotify 处理支付回调
 func (s *OrderService) ProcessPayNotify(tradeNo, apiTradeNo, buyer string, amount decimal.Decimal, channelID ...int64) error {
+	if strings.TrimSpace(tradeNo) == "" || strings.TrimSpace(apiTradeNo) == "" {
+		return errors.New("支付回调订单号无效")
+	}
+	if err := validateMoney(amount); err != nil {
+		return err
+	}
 	// 回调与主动查单共享此入口。数据库行锁保证跨进程幂等，订单、余额、
 	// 流水必须使用同一事务；Transaction 会返回 Begin/Commit 错误并回滚异常。
 	return database.Get().Transaction(func(tx *gorm.DB) error {
@@ -288,6 +294,11 @@ func (s *OrderService) ProcessPayNotify(tradeNo, apiTradeNo, buyer string, amoun
 		}
 		switch order.Status {
 		case model.OrderStatusPaid, model.OrderStatusRefund:
+			// A replay of the same provider transaction is harmless. A different
+			// transaction must never be allowed to overwrite a settled order.
+			if order.ApiTradeNo != "" && order.ApiTradeNo != apiTradeNo {
+				return errors.New("订单回调流水号不匹配")
+			}
 			return nil // 正常重试无需再次入账，也不能将已退款订单恢复为已支付。
 		case model.OrderStatusUnpaid:
 		default:

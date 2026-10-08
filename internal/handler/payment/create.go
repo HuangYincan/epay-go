@@ -17,6 +17,8 @@ import (
 type CreateOrderRequest struct {
 	OpenID     string `form:"openid" json:"openid"`
 	PayMethod  string `form:"pay_method" json:"pay_method"`
+	ClientIP   string `form:"clientip" json:"clientip"`
+	Device     string `form:"device" json:"device"`
 	Pid        string `form:"pid" json:"pid" binding:"required"`                   // 商户ID
 	Type       string `form:"type" json:"type" binding:"required"`                 // 支付类型
 	OutTradeNo string `form:"out_trade_no" json:"out_trade_no" binding:"required"` // 商户订单号
@@ -33,6 +35,10 @@ func CreateOrder(c *gin.Context) {
 	var req CreateOrderRequest
 	if err := c.ShouldBind(&req); err != nil {
 		response.ParamError(c, "参数错误: "+err.Error())
+		return
+	}
+	if !validEPaySignType(req.SignType) {
+		response.ParamError(c, "仅支持 MD5 签名")
 		return
 	}
 
@@ -70,6 +76,12 @@ func CreateOrder(c *gin.Context) {
 	if req.PayMethod != "" {
 		params.Set("pay_method", req.PayMethod)
 	}
+	if req.ClientIP != "" {
+		params.Set("clientip", req.ClientIP)
+	}
+	if req.Device != "" {
+		params.Set("device", req.Device)
+	}
 
 	if !sign.VerifyMD5Sign(params, merchant.ApiKey, req.Sign) {
 		response.Error(c, response.CodeParamError, "签名验证失败")
@@ -103,7 +115,7 @@ func CreateOrder(c *gin.Context) {
 		ReturnURL:         req.ReturnURL,
 		ClientIP:          utils.GetClientIP(c),
 		PayMethod:         routing.PayMethod,
-		Extra:             map[string]string{"openid": req.OpenID},
+		Extra:             map[string]string{"openid": req.OpenID, "pay_type": routing.PayType},
 	}
 
 	orderResp, err := orderService.Create(c.Request.Context(), orderReq)

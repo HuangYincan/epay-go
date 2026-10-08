@@ -1,65 +1,75 @@
-// pkg/sign/sign.go
+// Package sign implements the MD5 signing rules used by the EPay protocol.
 package sign
 
 import (
 	"crypto/md5"
+	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	"sort"
 	"strings"
 )
 
-// VerifyMD5Sign 验证MD5签名（与原epay兼容）
-func VerifyMD5Sign(params url.Values, key, sign string) bool {
-	// 按key排序
-	var keys []string
-	for k := range params {
-		if k != "sign" && k != "sign_type" && params.Get(k) != "" {
+// canonicalString returns the EPay canonical payload. EPay excludes sign and
+// sign_type, ignores empty values, sorts keys, and appends the shared key.
+// Duplicate values are rejected because url.Values.Get would otherwise make
+// the signed value differ from the value consumed by another parser.
+func canonicalString(params url.Values, key string) (string, error) {
+	if strings.TrimSpace(key) == "" {
+		return "", errors.New("empty signing key")
+	}
+	keys := make([]string, 0, len(params))
+	for k, values := range params {
+		if len(values) > 1 {
+			return "", errors.New("duplicate signing parameter")
+		}
+		if k == "sign" || k == "sign_type" {
+			continue
+		}
+		if len(values) == 1 && values[0] != "" {
 			keys = append(keys, k)
 		}
 	}
 	sort.Strings(keys)
-
-	// 拼接字符串
-	var buf strings.Builder
+	var b strings.Builder
 	for i, k := range keys {
 		if i > 0 {
-			buf.WriteString("&")
+			b.WriteByte('&')
 		}
-		buf.WriteString(k)
-		buf.WriteString("=")
-		buf.WriteString(params.Get(k))
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(params[k][0])
 	}
-	buf.WriteString(key)
-
-	// MD5
-	hash := md5.Sum([]byte(buf.String()))
-	expected := hex.EncodeToString(hash[:])
-
-	return strings.EqualFold(expected, sign)
+	b.WriteString(key)
+	return b.String(), nil
 }
 
-// GenerateMD5Sign 生成MD5签名
+// VerifyMD5Sign verifies an EPay MD5 signature. Comparison is constant time
+// after strict hexadecimal decoding so malformed signatures are rejected early.
+func VerifyMD5Sign(params url.Values, key, signature string) bool {
+	if len(signature) != md5.Size*2 {
+		return false
+	}
+	provided, err := hex.DecodeString(signature)
+	if err != nil || len(provided) != md5.Size {
+		return false
+	}
+	payload, err := canonicalString(params, key)
+	if err != nil {
+		return false
+	}
+	expected := md5.Sum([]byte(payload))
+	return subtle.ConstantTimeCompare(expected[:], provided) == 1
+}
+
+// GenerateMD5Sign generates an EPay MD5 signature. It returns an empty string
+// for an invalid key or ambiguous parameter set.
 func GenerateMD5Sign(params url.Values, key string) string {
-	var keys []string
-	for k := range params {
-		if k != "sign" && k != "sign_type" && params.Get(k) != "" {
-			keys = append(keys, k)
-		}
+	payload, err := canonicalString(params, key)
+	if err != nil {
+		return ""
 	}
-	sort.Strings(keys)
-
-	var buf strings.Builder
-	for i, k := range keys {
-		if i > 0 {
-			buf.WriteString("&")
-		}
-		buf.WriteString(k)
-		buf.WriteString("=")
-		buf.WriteString(params.Get(k))
-	}
-	buf.WriteString(key)
-
-	hash := md5.Sum([]byte(buf.String()))
+	hash := md5.Sum([]byte(payload))
 	return hex.EncodeToString(hash[:])
 }

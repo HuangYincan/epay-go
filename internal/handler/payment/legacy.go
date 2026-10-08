@@ -1,6 +1,7 @@
 package payment
 
 import (
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"github.com/example/epay-go/pkg/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
+	"github.com/skip2/go-qrcode"
 )
 
 type LegacyCreateOrderRequest struct {
@@ -56,6 +58,10 @@ func LegacySubmit(c *gin.Context) {
 		legacyHTML(c, "参数错误: "+err.Error())
 		return
 	}
+	if !validEPaySignType(req.SignType) {
+		legacyHTML(c, "仅支持 MD5 签名")
+		return
+	}
 
 	orderResp, _, err := createLegacyOrder(c, &req)
 	if err != nil {
@@ -83,6 +89,10 @@ func LegacyCreateOrder(c *gin.Context) {
 	var req LegacyCreateOrderRequest
 	if err := c.ShouldBind(&req); err != nil {
 		legacyError(c, "参数错误: "+err.Error())
+		return
+	}
+	if !validEPaySignType(req.SignType) {
+		legacyError(c, "仅支持 MD5 签名")
 		return
 	}
 
@@ -359,7 +369,7 @@ func createLegacyOrder(c *gin.Context, req *LegacyCreateOrderRequest) (*service.
 		ReturnURL:         req.ReturnURL,
 		ClientIP:          utils.GetClientIP(c),
 		PayMethod:         routing.PayMethod,
-		Extra:             map[string]string{"openid": req.OpenID},
+		Extra:             map[string]string{"openid": req.OpenID, "pay_type": routing.PayType},
 	})
 	if err != nil {
 		return nil, nil, err
@@ -402,6 +412,11 @@ func attachLegacyPayFields(resp gin.H, orderResp *service.CreateOrderResponse) {
 	}
 }
 
+func validEPaySignType(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || strings.EqualFold(value, "MD5")
+}
+
 func legacyHTML(c *gin.Context, msg string) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(200, "<html><body><h3>"+template.HTMLEscapeString(msg)+"</h3></body></html>")
@@ -417,7 +432,12 @@ func legacyQRCodePage(c *gin.Context, req *LegacyCreateOrderRequest, orderResp *
 	statusAPIURL := template.JSEscapeString(getPaymentBaseURL(c) + "/api/pay/status/" + orderResp.TradeNo)
 	escapedReturnURL := template.HTMLEscapeString(req.ReturnURL)
 	escapedReturnURLJS := template.JSEscapeString(req.ReturnURL)
-	qrImageURL := template.HTMLEscapeString("https://api.qrserver.com/v1/create-qr-code/?size=232x232&data=" + url.QueryEscape(orderResp.PayURL))
+	qrPNG, err := qrcode.Encode(orderResp.PayURL, qrcode.Medium, 232)
+	if err != nil {
+		legacyHTML(c, "二维码生成失败")
+		return
+	}
+	qrImageURL := template.HTMLEscapeString("data:image/png;base64," + base64.StdEncoding.EncodeToString(qrPNG))
 	returnSection := ""
 	if strings.TrimSpace(req.ReturnURL) != "" {
 		returnSection = fmt.Sprintf(`<a class="action secondary" href="%s">返回商户页面</a>`, escapedReturnURL)
@@ -627,8 +647,8 @@ func legacyQRCodePage(c *gin.Context, req *LegacyCreateOrderRequest, orderResp *
     <section class="hero">
       <div>
         <div class="badge">安全支付 · 扫码付款</div>
-        <h1 class="title">请使用微信扫码完成支付</h1>
-        <p class="subtitle">订单已经创建成功，请使用微信扫一扫扫描右侧二维码完成付款。支付成功后，系统会自动通知商户并跳转回业务页面。</p>
+        <h1 class="title">请扫码完成支付</h1>
+        <p class="subtitle">订单已经创建成功，请使用对应支付应用扫描右侧二维码完成付款。支付成功后，系统会自动通知商户并跳转回业务页面。</p>
         <div class="summary">
           <div class="summary-item">
             <div class="summary-label">支付金额</div>
