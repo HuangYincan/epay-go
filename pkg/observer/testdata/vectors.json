@@ -1,0 +1,171 @@
+{
+  "contract": "observer-events-v1-rc1",
+  "warning": "PUBLIC SYNTHETIC TEST KEY ONLY; never a credential",
+  "vectors": [
+    {
+      "id": "wx-basic",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "POST",
+      "path": "/api/observer/v1/events",
+      "key_id": "fixture-key-a",
+      "sent_at_ms": "1792022400000",
+      "request_id": "33333333-3333-4333-8333-333333333333",
+      "body_base64": "eyJzY2hlbWFfdmVyc2lvbiI6MSwiZXZlbnRfaWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJkZXZpY2VfaWQiOiJmaXh0dXJlLWRldmljZS1hIiwicmVjZWl2ZXJfaWQiOiJmaXh0dXJlLXJlY2VpdmVyLXd4IiwiYmluZGluZ192ZXJzaW9uIjoxLCJwcm92aWRlciI6Ind4cGF5IiwiYW1vdW50X21pbm9yIjoxMDAxLCJjdXJyZW5jeSI6IkNOWSIsIm9ic2VydmVkX2F0X21zIjoxNzkyMDIyMzk5MDAwLCJwYXJzZXJfdmVyc2lvbiI6ImZpeHR1cmUtd3gtdjEiLCJzb3VyY2VfY2xhc3MiOiJzeW50aGV0aWMiLCJpZGVudGl0eV9jb25maWRlbmNlIjoiZGlzdGluY3QifQ==",
+      "body_sha256": "07b69033235bd9b7d40387a0ce51fddf4befbb2e94b88f635c39bf78e81bbbff",
+      "signing_input_base64": "ZXBheS1vYnNlcnZlci12MQpQT1NUCi9hcGkvb2JzZXJ2ZXIvdjEvZXZlbnRzCmZpeHR1cmUta2V5LWEKMTc5MjAyMjQwMDAwMAozMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMKMDdiNjkwMzMyMzViZDliN2Q0MDM4N2EwY2U1MWZkZGY0YmVmYmIyZTk0Yjg4ZjYzNWMzOWJmNzhlODFiYmJmZg==",
+      "signature_hex": "5d900a53a7b27498ce5b29360ba1ff8bd6c6f9e9aa57c973b5b5d715ceab8e5e"
+    },
+    {
+      "id": "ali-utf8",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "POST",
+      "path": "/api/observer/v1/events",
+      "key_id": "fixture-key-a",
+      "sent_at_ms": "1792022400000",
+      "request_id": "33333333-3333-4333-8333-333333333333",
+      "body_base64": "eyJzY2hlbWFfdmVyc2lvbiI6MSwiZXZlbnRfaWQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJkZXZpY2VfaWQiOiJmaXh0dXJlLWRldmljZS1hIiwicmVjZWl2ZXJfaWQiOiJmaXh0dXJlLXJlY2VpdmVyLWFsaSIsImJpbmRpbmdfdmVyc2lvbiI6MSwicHJvdmlkZXIiOiJhbGlwYXkiLCJhbW91bnRfbWlub3IiOjEwMDEsImN1cnJlbmN5IjoiQ05ZIiwib2JzZXJ2ZWRfYXRfbXMiOjE3OTIwMjIzOTkwMDAsInBhcnNlcl92ZXJzaW9uIjoiZml4dHVyZS1hbGktdjEiLCJzb3VyY2VfY2xhc3MiOiJzeW50aGV0aWMiLCJpZGVudGl0eV9jb25maWRlbmNlIjoiZGlzdGluY3QiLCJwcm92aWRlcl90cmFuc2FjdGlvbl9pZCI6IuWQiOaIkOa1geawtC3ku4XnlKjkuo7lrZfoioLpqozor4EifQ==",
+      "body_sha256": "a9fe8b1a167626deb34101ce1bfe12a21523086e238e7204b57b50aaecd1f45f",
+      "signing_input_base64": "ZXBheS1vYnNlcnZlci12MQpQT1NUCi9hcGkvb2JzZXJ2ZXIvdjEvZXZlbnRzCmZpeHR1cmUta2V5LWEKMTc5MjAyMjQwMDAwMAozMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMKYTlmZThiMWExNjc2MjZkZWIzNDEwMWNlMWJmZTEyYTIxNTIzMDg2ZTIzOGU3MjA0YjU3YjUwYWFlY2QxZjQ1Zg==",
+      "signature_hex": "336f9571bb3b0587fafd8e6d70b103ee3041e198f838e5450d1e78d75c2119b2"
+    },
+    {
+      "id": "wx-retry",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "POST",
+      "path": "/api/observer/v1/events",
+      "key_id": "fixture-key-a",
+      "sent_at_ms": "1792022410000",
+      "request_id": "44444444-4444-4444-8444-444444444444",
+      "body_base64": "eyJzY2hlbWFfdmVyc2lvbiI6MSwiZXZlbnRfaWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJkZXZpY2VfaWQiOiJmaXh0dXJlLWRldmljZS1hIiwicmVjZWl2ZXJfaWQiOiJmaXh0dXJlLXJlY2VpdmVyLXd4IiwiYmluZGluZ192ZXJzaW9uIjoxLCJwcm92aWRlciI6Ind4cGF5IiwiYW1vdW50X21pbm9yIjoxMDAxLCJjdXJyZW5jeSI6IkNOWSIsIm9ic2VydmVkX2F0X21zIjoxNzkyMDIyMzk5MDAwLCJwYXJzZXJfdmVyc2lvbiI6ImZpeHR1cmUtd3gtdjEiLCJzb3VyY2VfY2xhc3MiOiJzeW50aGV0aWMiLCJpZGVudGl0eV9jb25maWRlbmNlIjoiZGlzdGluY3QifQ==",
+      "body_sha256": "07b69033235bd9b7d40387a0ce51fddf4befbb2e94b88f635c39bf78e81bbbff",
+      "signing_input_base64": "ZXBheS1vYnNlcnZlci12MQpQT1NUCi9hcGkvb2JzZXJ2ZXIvdjEvZXZlbnRzCmZpeHR1cmUta2V5LWEKMTc5MjAyMjQxMDAwMAo0NDQ0NDQ0NC00NDQ0LTQ0NDQtODQ0NC00NDQ0NDQ0NDQ0NDQKMDdiNjkwMzMyMzViZDliN2Q0MDM4N2EwY2U1MWZkZGY0YmVmYmIyZTk0Yjg4ZjYzNWMzOWJmNzhlODFiYmJmZg==",
+      "signature_hex": "46ffd0774169a13ed83f80247f7f44162b20c948b584b38751e135c5c2f641f8"
+    }
+  ],
+  "contract_cases": [
+    {
+      "id": "V-01",
+      "base": "wx-basic",
+      "change": "none",
+      "expected": "202 accepted"
+    },
+    {
+      "id": "V-02",
+      "base": "ali-utf8",
+      "change": "none",
+      "expected": "202 accepted"
+    },
+    {
+      "id": "V-03",
+      "base": "wx-retry",
+      "precondition": "wx-basic committed",
+      "change": "same body, fresh request",
+      "expected": "200 duplicate"
+    },
+    {
+      "id": "V-04",
+      "base": "wx-basic",
+      "change": "amount_minor=1002 without resign",
+      "expected": "401 invalid_signature"
+    },
+    {
+      "id": "V-05",
+      "base": "wx-basic",
+      "change": "path=/api/observer/v1/events/ without resign",
+      "expected": "route rejection, no persistence"
+    },
+    {
+      "id": "V-06",
+      "base": "wx-basic",
+      "change": "replace LF by CRLF or append LF in signing input",
+      "expected": "401 invalid_signature"
+    },
+    {
+      "id": "V-07",
+      "base": "wx-basic",
+      "change": "received_at=sent_at+300000",
+      "expected": "202 accepted (inclusive boundary)"
+    },
+    {
+      "id": "V-08",
+      "base": "wx-basic",
+      "change": "received_at=sent_at+300001",
+      "expected": "401 clock_skew"
+    },
+    {
+      "id": "V-09",
+      "base": "wx-basic",
+      "change": "received_at=sent_at-300000",
+      "expected": "202 accepted (inclusive boundary)"
+    },
+    {
+      "id": "V-10",
+      "base": "wx-basic",
+      "change": "received_at=sent_at-300001",
+      "expected": "401 clock_skew"
+    },
+    {
+      "id": "V-11",
+      "base": "wx-basic",
+      "precondition": "same event committed",
+      "change": "body whitespace changed, fresh request and valid resign",
+      "expected": "409 event_conflict"
+    },
+    {
+      "id": "V-12",
+      "base": "wx-basic",
+      "change": "receiver_id outside key scope and valid resign",
+      "expected": "403 scope_denied"
+    },
+    {
+      "id": "V-13",
+      "base": "wx-basic",
+      "change": "revoked key, otherwise unchanged",
+      "expected": "403 revoked"
+    },
+    {
+      "id": "V-14",
+      "base": "wx-basic",
+      "change": "fixture credential sent to production",
+      "expected": "401 unknown_key or 403 environment_denied; never persisted"
+    },
+    {
+      "id": "V-15",
+      "base": "wx-basic",
+      "change": "duplicate amount_minor JSON property and valid resign",
+      "expected": "400 invalid_payload"
+    },
+    {
+      "id": "V-16",
+      "base": "wx-basic",
+      "change": "amount_minor as 1e3, 10.01, zero, -0, 1000000000000, or string; valid resign",
+      "expected": "400 invalid_payload"
+    },
+    {
+      "id": "V-17",
+      "base": "wx-basic",
+      "precondition": "request committed",
+      "change": "same request ID but different signed envelope",
+      "expected": "409 request_conflict"
+    },
+    {
+      "id": "V-18",
+      "base": "wx-basic",
+      "precondition": "request committed and still authorized/fresh",
+      "change": "exact request replay",
+      "expected": "200 duplicate"
+    },
+    {
+      "id": "V-19",
+      "base": "wx-basic",
+      "change": "old observed_at, fresh envelope",
+      "expected": "202 accepted; processing needs_review/stale_observation"
+    },
+    {
+      "id": "V-20",
+      "base": "wx-basic",
+      "change": "forbidden order_id even with valid resign",
+      "expected": "400 invalid_payload"
+    }
+  ]
+}
