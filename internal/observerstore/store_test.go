@@ -165,7 +165,7 @@ func TestMigrationPreservesLegacyDataAndRunsConcurrently(t *testing.T) {
 	if err := database.Migrate(); err != nil {
 		t.Fatal(err)
 	}
-	if count(t, db, "observer_schema_versions") != 2 || count(t, db, "observer_events") != 0 {
+	if count(t, db, "observer_schema_versions") != 3 || count(t, db, "observer_events") != 0 {
 		t.Fatal("migration did not remain additive")
 	}
 	var afterOrder model.Order
@@ -199,7 +199,7 @@ func TestMigrationCollisionRollsBackDDLAndUnknownVersionFails(t *testing.T) {
 	if err := observerstore.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	exec(t, db, `INSERT INTO observer_schema_versions VALUES (3,'future')`)
+	exec(t, db, `INSERT INTO observer_schema_versions VALUES (4,'future')`)
 	if !errors.Is(observerstore.Migrate(context.Background(), db), observerstore.ErrSchema) {
 		t.Fatal("future schema ignored")
 	}

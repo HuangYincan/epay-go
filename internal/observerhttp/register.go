@@ -5,6 +5,7 @@ import (
 	"github.com/example/epay-go/internal/middleware"
 	"github.com/example/epay-go/internal/observerstore"
 	"github.com/example/epay-go/pkg/jwt"
+	"github.com/example/epay-go/pkg/observer"
 	"github.com/gin-gonic/gin"
 )
 
@@ -23,13 +24,14 @@ func Router(service *observerstore.PairingService) *gin.Engine {
 		}()
 		c.Next()
 	})
-	h := NewPairingHandler(service)
+	h := NewHandler(service)
 	r.NoRoute(func(c *gin.Context) {
 		if h.Guard(c.Writer, c.Request) {
 			failure(c.Writer, 400, "invalid_route")
 		}
 	})
 	r.POST("/api/observer/v1/pairing/:operation", gin.WrapH(h))
+	r.POST(observer.Path, func(c *gin.Context) { h.Events(c.Writer, c.Request) })
 	adminRoutes := r.Group("/api/admin")
 	adminRoutes.Use(func(c *gin.Context) {
 		if !h.Guard(c.Writer, c.Request) {

@@ -1,6 +1,6 @@
 # Observer pairing v1
 
-关联 epay-go #6、epay-observer-android #17/#25；契约为同目录 SPEC-016。仅配对/激活/撤销/轮换，不开放 events，不确认订单。默认配置完全不启动此监听器；普通 HTTP router 不注册这些接口。
+关联 epay-go #6、epay-observer-android #17/#25；契约为同目录 SPEC-016。已扩展SPEC-017实际events接收；配对/激活/撤销/轮换与接收共用授权事务边界，不确认订单。默认配置完全不启动此监听器；普通 HTTP router 不注册这些接口。
 
 启用必须同时配置 `.env.example` 中全部 OBSERVER_* 字段。独立 KEK 文件只含32字节密钥的canonical base64url，文件权限0600，不能使用商户密钥/JWT/notify_key；私钥及KEK只通过私有文件挂载。配置不完整、KEK权限不符或TLS证书错误会拒绝启动；TLS最低1.2，无明文fallback，不信任Forwarded头。origin必须与客户端使用的精确HTTPS主机/端口一致。
 
@@ -19,3 +19,7 @@ create返回scope及短期token，其他接口不返回凭据。设备仅取得�
 测试：`EPAY_TEST_DATABASE_DSN=... go test -race ./...`，必须指向专用测试库。测试自动创建并删除schema，覆盖迁移、并发、失效授权、持久限流、响应丢失、提交失败以及实际TLS路由。`observeravd`标签只编译临时AVD桥接测试，不能进入server二进制；步骤和跨库报告见观察器 `docs/testing/M2-pairing-report.md`。不上传任何生成的grant、私钥、KEK或数据库凭据。
 
 跨库记录：[epay-go PR #14](https://github.com/HuangYincan/epay-go/pull/14)、[Android PR #50](https://github.com/HuangYincan/epay-observer-android/pull/50)。网关代码f961159/Android代码9b74816；Go完整CI run38850098132通过，Android的28+8 AVD及双渠道实际HTTPS/负例证据位于配套报告。后续只更新文档时仍核对PR最终head checks，不把此配对子集当成整个#6完成。
+
+SPEC-017关联观察器#20/#21/#25：固定POST /api/observer/v1/events在提交后返回持久ACK；同request封套冲突与同event内容冲突隔离；设备token bucket持久化，重复请求亦计费。请求记录本批不清理。Go全race/vet、33项AVD及8个进程阶段通过，独立双渠道合成通知实际签名HTTPS落库：2事件/3请求（首次ACK丢失），历史UNBOUND不补绑。详见观察器M2-receive-upload-report；后台持久调度与匹配/充值未实现，#6仍开放。
+
+接收跨库PR：[epay-go #15](https://github.com/HuangYincan/epay-go/pull/15)、[Android #51](https://github.com/HuangYincan/epay-observer-android/pull/51)。实现gateway1135b59/c645f10、Android7e6da30/814d796；最终head CI以PR Checks为准。
