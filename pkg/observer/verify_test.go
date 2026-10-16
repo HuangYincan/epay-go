@@ -39,8 +39,8 @@ func goldens(t *testing.T) []vector {
 	if err = json.Unmarshal(data, &file); err != nil {
 		t.Fatal(err)
 	}
-	if len(file.Vectors) != 3 {
-		t.Fatalf("expected three golden vectors, got %d", len(file.Vectors))
+	if len(file.Vectors) != 5 {
+		t.Fatalf("expected five golden vectors, got %d", len(file.Vectors))
 	}
 	return file.Vectors
 }
