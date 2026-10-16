@@ -85,6 +85,11 @@ func (receiver *Receiver) Receive(ctx context.Context, r *http.Request, body []b
 		if err := tx.Exec(`INSERT INTO observer_requests(key_id,request_id,envelope_sha256,event_pk,disposition,first_seen_at_ms) VALUES (?,?,?,?,?,?)`, credential.KeyID, verified.RequestID, envelope, evidence.EventPK, evidence.Disposition, now).Error; err != nil {
 			return result, err
 		}
+		if evidence.Disposition == "stored" {
+			if err := freezeCandidates(tx, evidence.EventPK); err != nil {
+				return result, err
+			}
+		}
 		if evidence.Disposition == "conflict" {
 			result = rejectedRequest(409, "event_conflict")
 			return result, nil

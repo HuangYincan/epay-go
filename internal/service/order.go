@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/example/epay-go/internal/accounting"
 	"github.com/example/epay-go/internal/database"
 	"github.com/example/epay-go/internal/model"
 	"github.com/example/epay-go/internal/observerstore"
@@ -368,19 +369,8 @@ func (s *OrderService) ProcessPayNotify(tradeNo, apiTradeNo, buyer string, amoun
 			return errors.New("订单状态不允许入账")
 		}
 
-		merchant, err := s.merchantRepo.GetByIDForUpdate(tx, order.MerchantID)
-		if err != nil {
-			return err
-		}
-		income := order.Amount.Sub(order.Fee)
-		newBalance := merchant.Balance.Add(income)
-		if err := s.orderRepo.UpdatePayInfo(tx, tradeNo, apiTradeNo, buyer); err != nil {
-			return err
-		}
-		if err := s.merchantRepo.UpdateBalance(tx, merchant.ID, income); err != nil {
-			return err
-		}
-		return repository.AddBalanceRecord(tx, merchant.ID, model.RecordActionIncome, income, merchant.Balance, newBalance, "order_income", tradeNo)
+		_, err = accounting.CreditLockedOrder(tx, order, &apiTradeNo, buyer, s.now())
+		return err
 	})
 }
 
