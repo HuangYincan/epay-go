@@ -354,3 +354,25 @@ func TestSyntheticCachedQRRejectsDisabledMerchant(t *testing.T) {
 		t.Fatalf("disabled merchant cached QR: %v", err)
 	}
 }
+
+func TestSyntheticClaimCommittedBeforeAliasRejectsHistoricalCollision(t *testing.T) {
+	f := newClaimFixture(t)
+	original := f.create(t, "claim-before-alias", "wxpay")
+	legacyChannel := f.channels[0]
+	legacyChannel.ID = 0
+	legacyChannel.Name = "later-alias"
+	if err := f.db.Create(&legacyChannel).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacy := model.Order{TradeNo: "history-later-mapped", OutTradeNo: "history-later-mapped", MerchantID: f.merchants[1].ID, ChannelID: legacyChannel.ID, PayType: "wxpay", Amount: original.Amount, RealAmount: original.Amount}
+	if err := f.db.Create(&legacy).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.Exec(`INSERT INTO observer_channel_aliases VALUES (?,'claim-test','receiver-wx','wxpay')`, legacyChannel.ID).Error; err == nil {
+		t.Fatal("alias introduced history after claim commit")
+	}
+	if _, err := f.service.Checkout(context.Background(), original.TradeNo, "wxpay"); err != nil {
+		t.Fatalf("rejected alias changed original scope: %v", err)
+	}
+	f.counts(t, 2, 1)
+}
