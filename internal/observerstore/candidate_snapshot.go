@@ -48,5 +48,15 @@ func freezeCandidates(tx *gorm.DB, eventPK int64) error {
 	if err := tx.Raw(`SELECT order_id FROM observer_amount_claims WHERE environment=? AND receiver_id=? AND provider=? AND amount_minor=?`, e.Environment, e.ReceiverID, e.Provider, e.AmountMinor).Scan(&claim).Error; err != nil {
 		return err
 	}
-	return tx.Exec(`INSERT INTO observer_candidate_snapshots(event_pk,claim_order_id,candidate_count,candidate_order_id,candidate_cutoff_ms) VALUES (?,?,?,?,?)`, e.ID, claim.OrderID, count, id, e.FirstReceivedAtMs).Error
+	if err := tx.Exec(`INSERT INTO observer_candidate_snapshots(event_pk,claim_order_id,candidate_count,candidate_order_id,candidate_cutoff_ms) VALUES (?,?,?,?,?)`, e.ID, claim.OrderID, count, id, e.FirstReceivedAtMs).Error; err != nil {
+		return err
+	}
+	var paused bool
+	if err := tx.Raw(`SELECT paused FROM observer_confirmation_controls WHERE environment=? AND receiver_id=?`, e.Environment, e.ReceiverID).Scan(&paused).Error; err != nil {
+		return err
+	}
+	if paused {
+		return persistDecision(tx, MatchingDecision{EventPK: e.ID, PolicyVersion: SyntheticPolicy, Outcome: "evidence_insufficient", Reason: "confirmation_paused", CandidateCount: count, CandidateCutoffMs: e.FirstReceivedAtMs, OrderID: id, DecidedAtMs: e.FirstReceivedAtMs}, 0)
+	}
+	return nil
 }
