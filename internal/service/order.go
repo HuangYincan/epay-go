@@ -73,6 +73,14 @@ func (s *OrderService) Create(ctx context.Context, req *CreateOrderRequest) (*Cr
 	if strings.TrimSpace(req.OutTradeNo) == "" || len(req.OutTradeNo) > 64 {
 		return nil, errors.New("商户订单号格式错误")
 	}
+	localCallback := false
+	if req.MerchantNotifyURL != "" {
+		var err error
+		localCallback, err = preflightMerchantCallback(ctx, req.MerchantNotifyURL)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if req.ReturnURL != "" {
 		if _, err := safehttp.ParseURL(req.ReturnURL); err != nil {
 			return nil, err
@@ -95,7 +103,7 @@ func (s *OrderService) Create(ctx context.Context, req *CreateOrderRequest) (*Cr
 	}
 	var lastError error
 	for i := range channels {
-		order, err := s.reserveOrder(ctx, req, &channels[i], string(extra))
+		order, err := s.reserveOrder(ctx, req, &channels[i], string(extra), localCallback)
 		if errors.Is(err, errChannelUnavailable) {
 			lastError = err
 			continue
@@ -112,7 +120,7 @@ func (s *OrderService) Create(ctx context.Context, req *CreateOrderRequest) (*Cr
 
 var errChannelUnavailable = errors.New("支付通道当前不可用")
 
-func (s *OrderService) reserveOrder(ctx context.Context, req *CreateOrderRequest, channel *model.Channel, extra string) (*model.Order, error) {
+func (s *OrderService) reserveOrder(ctx context.Context, req *CreateOrderRequest, channel *model.Channel, extra string, localCallback bool) (*model.Order, error) {
 	method := payment.CanonicalMethod(channel.Plugin, req.PayMethod)
 	if method == "jsapi" && req.Extra["openid"] == "" {
 		return nil, errors.New("JSAPI支付必须提供openid")
@@ -161,7 +169,7 @@ func (s *OrderService) reserveOrder(ctx context.Context, req *CreateOrderRequest
 		if merchant.Status != 1 {
 			return errors.New("商户已被禁用")
 		}
-		if req.MerchantNotifyURL != "" {
+		if localCallback {
 			if err := validateMerchantCallback(ctx, req.MerchantNotifyURL, scope); err != nil {
 				return err
 			}

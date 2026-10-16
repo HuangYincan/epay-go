@@ -3,10 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -356,5 +359,38 @@ func TestArchivedChannelRefundRecovery(t *testing.T) {
 	}
 	if a.calls.Load() != 2 {
 		t.Fatal("new refund did not use archived original provider")
+	}
+}
+
+// Callback DNS is untrusted I/O and must never hold a shared payment channel
+// lock. Keep one resolver call blocked while another order uses the channel.
+func TestCallbackDNSDoesNotHoldPaymentLocks(t *testing.T) {
+	_, merchant, _ := orderFixture(t, "0")
+	previous := net.DefaultResolver
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		once.Do(func() { close(entered) })
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return nil, errors.New("synthetic blocked DNS")
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	t.Cleanup(func() { cancel(); close(release); <-done; net.DefaultResolver = previous })
+	slow := orderRequest(merchant.ID, "slow-dns", 1)
+	slow.MerchantNotifyURL = "https://blocked-callback.example/notify"
+	go func() { _, err := NewOrderService().Create(ctx, slow); done <- err }()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("resolver was not reached")
+	}
+	otherCtx, otherCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer otherCancel()
+	if _, err := NewOrderService().Create(otherCtx, orderRequest(merchant.ID, "independent", 2)); err != nil {
+		t.Fatal("DNS blocked unrelated order", err)
 	}
 }

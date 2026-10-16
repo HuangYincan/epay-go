@@ -66,10 +66,15 @@ func localCallbackTransport(raw string) (*http.Client, error) {
 	return &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errSyntheticCallback }}, nil
 }
 
-func validateMerchantCallback(ctx context.Context, raw string, scope *observerstore.OrderScope) error {
+func preflightMerchantCallback(ctx context.Context, raw string) (bool, error) {
 	if raw != os.Getenv("OBSERVER_SYNTHETIC_CALLBACK_URL") || raw == "" {
-		return safehttp.ValidateURL(ctx, raw)
+		return false, safehttp.ValidateURL(ctx, raw)
 	}
+	_, err := localCallbackTransport(raw)
+	return true, err
+}
+
+func validateMerchantCallback(_ context.Context, raw string, scope *observerstore.OrderScope) error {
 	if scope == nil || scope.Environment != observerstore.SyntheticEnvironment() {
 		return errSyntheticCallback
 	}
