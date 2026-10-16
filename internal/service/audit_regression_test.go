@@ -394,3 +394,53 @@ func TestCallbackDNSDoesNotHoldPaymentLocks(t *testing.T) {
 		t.Fatal("DNS blocked unrelated order", err)
 	}
 }
+
+// Exercise the persisted exhaustion boundary, then an explicit admin resend.
+// Preparing the last due attempt avoids pretending to wait hours in this DB test.
+func TestNotificationExhaustionPersistsUntilExplicitResend(t *testing.T) {
+	db := paymentTestDB(t)
+	merchant, orders := paymentFixture(t, db, 1)
+	o := orders[0]
+	if err := db.Model(&o).Updates(map[string]any{"status": model.OrderStatusPaid, "notify_url": "https://8.8.8.8/callback", "notify_status": model.NotifyStatusSending, "notify_count": len(NotifyRetryIntervals) - 1, "next_notify_at": time.Now().Add(-time.Minute)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	client := &http.Client{Transport: notifyTestTransport(func(*http.Request) (*http.Response, error) {
+		if calls.Add(1) == 1 {
+			return &http.Response{StatusCode: 503, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fail"))}, nil
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("success"))}, nil
+	})}
+	svc := NewNotifyService()
+	svc.httpClient = client
+	if err := svc.SendNotify(&o); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := NewOrderService().GetByTradeNo(o.TradeNo)
+	if err != nil || failed.NotifyStatus != model.NotifyStatusFailed || failed.NotifyCount != len(NotifyRetryIntervals) || failed.NextNotifyAt != nil || failed.NotifyLeaseUntil != nil {
+		t.Fatalf("exhaustion not persisted: %+v / %v", failed, err)
+	}
+	restarted := NewNotifyService()
+	restarted.httpClient = client
+	if err := restarted.SendNotify(&o); err != nil || calls.Load() != 1 {
+		t.Fatal("exhausted delivery automatically restarted", err)
+	}
+	if err := restarted.ResendNotify(&o); err != nil {
+		t.Fatal(err)
+	}
+	got, err := NewOrderService().GetByTradeNo(o.TradeNo)
+	if err != nil || calls.Load() != 2 || got.NotifyStatus != model.NotifyStatusSuccess || got.NotifyCount != 1 || got.Status != model.OrderStatusPaid || !got.Amount.Equal(o.Amount) {
+		t.Fatalf("explicit resend failed or changed original order: %+v / %v", got, err)
+	}
+	var current model.Merchant
+	var incomes int64
+	if err := db.First(&current, merchant.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.BalanceRecord{}).Count(&incomes).Error; err != nil {
+		t.Fatal(err)
+	}
+	if incomes != 0 || !current.Balance.Equal(merchant.Balance) {
+		t.Fatal("callback recovery changed accounting")
+	}
+}

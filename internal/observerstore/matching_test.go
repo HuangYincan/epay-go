@@ -186,7 +186,7 @@ func TestMatchConcurrentSameEventAndDistinctEventsCreditOnce(t *testing.T) {
 			f.order(t, "concurrent", pairingNow)
 			first, _ := f.receive(t, pairingNow+1000, pairingNow+1000, nil)
 			ids := []int64{first}
-			for i := 1; i < 12; i++ {
+			for i := 1; i < 20; i++ {
 				if distinct {
 					id, _ := f.receive(t, pairingNow+1000, pairingNow+1000, nil)
 					ids = append(ids, id)
@@ -195,7 +195,7 @@ func TestMatchConcurrentSameEventAndDistinctEventsCreditOnce(t *testing.T) {
 				}
 			}
 			var wg sync.WaitGroup
-			errs := make(chan error, 12)
+			errs := make(chan error, 20)
 			for _, id := range ids {
 				wg.Add(1)
 				go func(id int64) {

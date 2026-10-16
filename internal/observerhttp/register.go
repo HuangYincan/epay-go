@@ -46,5 +46,8 @@ func Router(service *observerstore.PairingService) *gin.Engine {
 	for _, path := range []string{"/grants", "/grants/revoke", "/bindings/revoke"} {
 		authorized.POST(path, func(c *gin.Context) { h.ServeAdmin(c.Writer, c.Request, middleware.GetUserID(c)) })
 	}
+	for _, path := range []string{"/events/query", "/confirmation"} {
+		authorized.POST(path, func(c *gin.Context) { h.ServeOperations(c.Writer, c.Request, middleware.GetUserID(c)) })
+	}
 	return r
 }

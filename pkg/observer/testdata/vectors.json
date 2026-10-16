@@ -40,6 +40,32 @@
       "body_sha256": "07b69033235bd9b7d40387a0ce51fddf4befbb2e94b88f635c39bf78e81bbbff",
       "signing_input_base64": "ZXBheS1vYnNlcnZlci12MQpQT1NUCi9hcGkvb2JzZXJ2ZXIvdjEvZXZlbnRzCmZpeHR1cmUta2V5LWEKMTc5MjAyMjQxMDAwMAo0NDQ0NDQ0NC00NDQ0LTQ0NDQtODQ0NC00NDQ0NDQ0NDQ0NDQKMDdiNjkwMzMyMzViZDliN2Q0MDM4N2EwY2U1MWZkZGY0YmVmYmIyZTk0Yjg4ZjYzNWMzOWJmNzhlODFiYmJmZg==",
       "signature_hex": "46ffd0774169a13ed83f80247f7f44162b20c948b584b38751e135c5c2f641f8"
+    },
+    {
+      "id": "wxpay-android-distinct",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "POST",
+      "path": "/api/observer/v1/events",
+      "key_id": "fixture-key-a",
+      "sent_at_ms": "1792022400000",
+      "request_id": "33333333-3333-4333-8333-333333333333",
+      "body_base64": "eyJzY2hlbWFfdmVyc2lvbiI6MSwiZXZlbnRfaWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJkZXZpY2VfaWQiOiJmaXh0dXJlLWRldmljZS1hIiwicmVjZWl2ZXJfaWQiOiJmaXh0dXJlLXJlY2VpdmVyLXd4IiwiYmluZGluZ192ZXJzaW9uIjoxLCJwcm92aWRlciI6Ind4cGF5IiwiYW1vdW50X21pbm9yIjoxMDAwLCJjdXJyZW5jeSI6IkNOWSIsIm9ic2VydmVkX2F0X21zIjoxNzkyMDIyMzk5MDAwLCJwYXJzZXJfdmVyc2lvbiI6ImZpeHR1cmUtd3gtdjEiLCJzb3VyY2VfY2xhc3MiOiJzeW50aGV0aWMiLCJpZGVudGl0eV9jb25maWRlbmNlIjoiZGlzdGluY3QifQ==",
+      "body_sha256": "14bd8c6c4acec27e92b7a2246c7a81aa8d36072f2718efc8531123b7be10979d",
+      "signing_input_base64": "ZXBheS1vYnNlcnZlci12MQpQT1NUCi9hcGkvb2JzZXJ2ZXIvdjEvZXZlbnRzCmZpeHR1cmUta2V5LWEKMTc5MjAyMjQwMDAwMAozMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMKMTRiZDhjNmM0YWNlYzI3ZTkyYjdhMjI0NmM3YTgxYWE4ZDM2MDcyZjI3MThlZmM4NTMxMTIzYjdiZTEwOTc5ZA==",
+      "signature_hex": "91b037317e9e905518a1b054a49d1a51839f3da8b2670978ad375f13d03dc1cb"
+    },
+    {
+      "id": "alipay-android-distinct",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "POST",
+      "path": "/api/observer/v1/events",
+      "key_id": "fixture-key-a",
+      "sent_at_ms": "1792022400000",
+      "request_id": "33333333-3333-4333-8333-333333333333",
+      "body_base64": "eyJzY2hlbWFfdmVyc2lvbiI6MSwiZXZlbnRfaWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJkZXZpY2VfaWQiOiJmaXh0dXJlLWRldmljZS1hIiwicmVjZWl2ZXJfaWQiOiJmaXh0dXJlLXJlY2VpdmVyLWFsaSIsImJpbmRpbmdfdmVyc2lvbiI6MSwicHJvdmlkZXIiOiJhbGlwYXkiLCJhbW91bnRfbWlub3IiOjEwMDAsImN1cnJlbmN5IjoiQ05ZIiwib2JzZXJ2ZWRfYXRfbXMiOjE3OTIwMjIzOTkwMDAsInBhcnNlcl92ZXJzaW9uIjoiZml4dHVyZS1hbGktdjEiLCJzb3VyY2VfY2xhc3MiOiJzeW50aGV0aWMiLCJpZGVudGl0eV9jb25maWRlbmNlIjoiZGlzdGluY3QifQ==",
+      "body_sha256": "93a830cc12af0eee178aa334f8753382143032c7bb5ec1a4e78eef37c62fb6a8",
+      "signing_input_base64": "ZXBheS1vYnNlcnZlci12MQpQT1NUCi9hcGkvb2JzZXJ2ZXIvdjEvZXZlbnRzCmZpeHR1cmUta2V5LWEKMTc5MjAyMjQwMDAwMAozMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMKOTNhODMwY2MxMmFmMGVlZTE3OGFhMzM0Zjg3NTMzODIxNDMwMzJjN2JiNWVjMWE0ZTc4ZWVmMzdjNjJmYjZhOA==",
+      "signature_hex": "f732b0e0b592296ceb473471f32950b7b1fd63462dd4f271c131226180db562c"
     }
   ],
   "contract_cases": [
