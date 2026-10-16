@@ -1,0 +1,43 @@
+{
+  "layer": "isolated PostgreSQL synthetic order service",
+  "policy": "synthetic-exclusive-v1",
+  "payment_verified": false,
+  "new_api_verified": false,
+  "runs": {
+    "default": {
+      "pass": 206,
+      "fail": 0,
+      "skip": 0,
+      "count_includes_subtests": true
+    },
+    "synthetic": {
+      "pass": 236,
+      "fail": 0,
+      "skip": 0,
+      "count_includes_subtests": true
+    },
+    "synthetic-service": {
+      "pass": 73,
+      "fail": 0,
+      "skip": 0,
+      "count_includes_subtests": true,
+      "claim_test_names": [
+        "TestSyntheticConcurrentAmountClaimsAcrossAliasesAndMerchants",
+        "TestSyntheticIdempotentOrderDoesNotRenewOrChangeAmount",
+        "TestSyntheticClaimsSurviveExpirySettlementAndBindingReplacement",
+        "TestSyntheticCheckoutExpiresEvenWithCachedQR",
+        "TestSyntheticOrderScopeMustBeExplicitAndEnabled",
+        "TestSyntheticClaimCommitFailureRollsBackAndRetryWorks",
+        "TestSyntheticDatabaseRetainsClaimsAndRejectsOrphanWindows",
+        "TestSyntheticLegacyHistoryNeverGetsReusedOrUpgraded",
+        "TestSyntheticQRProviderComesFromOriginalOrder",
+        "TestSyntheticConcurrentIdenticalRequestReturnsOneWindow",
+        "TestSyntheticCachedQRRejectsDisabledOrArchivedOriginalChannel",
+        "TestSyntheticAliasRegistrationCannotIntroduceClaimHistoryCollision",
+        "TestSyntheticArchivedCandidateCannotFallBackToLegacyChannel",
+        "TestSyntheticCachedQRRejectsDisabledMerchant",
+        "TestSyntheticClaimCommittedBeforeAliasRejectsHistoricalCollision"
+      ]
+    }
+  }
+}

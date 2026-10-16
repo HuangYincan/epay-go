@@ -36,15 +36,16 @@ type Order struct {
 	PaidAt           *time.Time      `json:"paid_at"`
 
 	// 关联
-	Merchant          *Merchant  `gorm:"foreignKey:MerchantID" json:"-"`
-	Channel           *Channel   `gorm:"foreignKey:ChannelID" json:"-"`
-	PayMethod         string     `gorm:"size:20" json:"pay_method"`
-	PayURL            string     `gorm:"type:text" json:"-"`
-	PayParams         string     `gorm:"type:text" json:"-"`
-	ProviderNotifyURL string     `gorm:"size:512" json:"-"`
-	CheckoutType      string     `gorm:"size:20" json:"-"`
-	CheckoutExpiresAt *time.Time `json:"-"`
-	Extra             string     `gorm:"type:text" json:"-"`
+	Merchant             *Merchant  `gorm:"foreignKey:MerchantID" json:"-"`
+	Channel              *Channel   `gorm:"foreignKey:ChannelID" json:"-"`
+	PayMethod            string     `gorm:"size:20" json:"pay_method"`
+	PayURL               string     `gorm:"type:text" json:"-"`
+	PayParams            string     `gorm:"type:text" json:"-"`
+	ProviderNotifyURL    string     `gorm:"size:512" json:"-"`
+	CheckoutType         string     `gorm:"size:20" json:"-"`
+	ObserverPayExpiresAt *time.Time `json:"observer_pay_expires_at,omitempty"`
+	CheckoutExpiresAt    *time.Time `json:"-"`
+	Extra                string     `gorm:"type:text" json:"-"`
 }
 
 func (Order) TableName() string {

@@ -18,6 +18,7 @@ import (
 	"github.com/example/epay-go/internal/config"
 	"github.com/example/epay-go/internal/database"
 	"github.com/example/epay-go/internal/model"
+	"github.com/example/epay-go/internal/observerstore"
 	"github.com/example/epay-go/pkg/jwt"
 	"github.com/example/epay-go/pkg/sign"
 	"github.com/gin-gonic/gin"
@@ -59,6 +60,9 @@ func auditDB(t *testing.T) *gorm.DB {
 		admin.Close()
 	})
 	if err = db.AutoMigrate(&model.Admin{}, &model.Merchant{}, &model.Channel{}, &model.Order{}, &model.BalanceRecord{}, &model.Settlement{}, &model.Refund{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := observerstore.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	return db
