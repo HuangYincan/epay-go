@@ -21,3 +21,5 @@ create返回scope及短期token，其他接口不返回凭据。设备仅取得�
 跨库记录：[epay-go PR #14](https://github.com/HuangYincan/epay-go/pull/14)、[Android PR #50](https://github.com/HuangYincan/epay-observer-android/pull/50)。网关代码f961159/Android代码9b74816；Go完整CI run38850098132通过，Android的28+8 AVD及双渠道实际HTTPS/负例证据位于配套报告。后续只更新文档时仍核对PR最终head checks，不把此配对子集当成整个#6完成。
 
 SPEC-017关联观察器#20/#21/#25：固定POST /api/observer/v1/events在提交后返回持久ACK；同request封套冲突与同event内容冲突隔离；设备token bucket持久化，重复请求亦计费。请求记录本批不清理。Go全race/vet、33项AVD及8个进程阶段通过，独立双渠道合成通知实际签名HTTPS落库：2事件/3请求（首次ACK丢失），历史UNBOUND不补绑。详见观察器M2-receive-upload-report；后台持久调度与匹配/充值未实现，#6仍开放。
+
+接收跨库PR：[epay-go #15](https://github.com/HuangYincan/epay-go/pull/15)、[Android #51](https://github.com/HuangYincan/epay-observer-android/pull/51)。实现gateway1135b59/c645f10、Android7e6da30/814d796；最终head CI以PR Checks为准。
