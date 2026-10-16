@@ -43,8 +43,8 @@ jobs:
         run: go build -o /tmp/epay-server ./cmd/server
       - name: Check observer protocol formatting
         run: |
-          gofmt -d pkg/observer
-          test -z "$(gofmt -l pkg/observer)"
+          gofmt -d pkg/observer internal/observerstore internal/database/migrate.go
+          test -z "$(gofmt -l pkg/observer internal/observerstore internal/database/migrate.go)"
       - name: Check reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
   frontend:
