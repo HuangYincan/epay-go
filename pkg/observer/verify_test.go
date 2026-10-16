@@ -148,3 +148,20 @@ func TestEnvelopeMutationAndTimeBoundaries(t *testing.T) {
 		t.Fatal("wrong key accepted")
 	}
 }
+
+func TestValidSignatureDoesNotPermitMalformedJSON(t *testing.T) {
+	v := goldens(t)[0]
+	original, _ := base64.StdEncoding.DecodeString(v.Body)
+	key, _ := hex.DecodeString(v.KeyHex)
+	now, _ := strconv.ParseInt(v.SentAt, 10, 64)
+	body := []byte(strings.Replace(string(original), `"amount_minor":1001`, `"amount_minor":1.001`, 1))
+	digest := sha256.Sum256(body)
+	input := strings.Join([]string{"epay-observer-v1", "POST", Path, v.KeyID, v.SentAt, v.RequestID, hex.EncodeToString(digest[:])}, "\n")
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(input))
+	r := request(v)
+	r.Header.Set("X-Observer-Signature", hex.EncodeToString(mac.Sum(nil)))
+	if _, err := VerifyRequest(r, body, v.KeyID, key, now); err == nil || err.Error() != "invalid_payload" {
+		t.Fatalf("signed malformed payload must be rejected after signature validation: %v", err)
+	}
+}

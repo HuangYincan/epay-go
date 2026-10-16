@@ -35,6 +35,8 @@ jobs:
           cache: true
       - name: Test with race detector and PostgreSQL
         run: go test -race ./...
+      - name: Fuzz strict observer JSON decoder
+        run: go test ./pkg/observer -run '^$' -fuzz=FuzzParseEvent -fuzztime=3s -parallel=2
       - name: Vet
         run: go vet ./...
       - name: Build backend
