@@ -61,11 +61,25 @@ func TestPairingAVDBridge(t *testing.T) {
 	router := observerhttp.Router(svc)
 	var redirected atomic.Int64
 	var droppedAck atomic.Bool
+	var healthChecks atomic.Int64
 	// Negative transport fixtures only. Real grants always reach the real router.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/test-redirect-sink" {
 			redirected.Add(1)
 			w.WriteHeader(400)
+			return
+		}
+		if r.URL.Path == observer.HealthPath {
+			recorded := httptest.NewRecorder()
+			router.ServeHTTP(recorded, r)
+			if recorded.Code == 200 {
+				healthChecks.Add(1)
+			}
+			for name, values := range recorded.Header() {
+				w.Header()[name] = values
+			}
+			w.WriteHeader(recorded.Code)
+			_, _ = w.Write(recorded.Body.Bytes())
 			return
 		}
 		if r.URL.Path == observer.PairingPrefix+"inspect" {
@@ -174,6 +188,9 @@ func TestPairingAVDBridge(t *testing.T) {
 			}
 			report := map[string]any{"layer": "emulator synthetic pairing over HTTPS", "active_credentials": 2, "providers": []string{"wxpay", "alipay"}, "events": count(t, db, "observer_events"), "payment_verified": false, "redirect_requests": redirected.Load()}
 			if mode != "" {
+				if mode == "upload" && healthChecks.Load() != 2 {
+					t.Fatal("both channel health checks were not authorized")
+				}
 				wantEvents, wantRequests := int64(2), int64(3)
 				if mode == "background" {
 					wantEvents, wantRequests = 10, 11
@@ -192,6 +209,7 @@ func TestPairingAVDBridge(t *testing.T) {
 				report["requests"] = wantRequests
 				report["ack_body_dropped"] = true
 				report["event_conflicts"] = count(t, db, "observer_event_conflicts")
+				report["health_checks"] = healthChecks.Load()
 			}
 			data, _ := json.MarshalIndent(report, "", "  ")
 			if err := os.WriteFile(filepath.Join(directory, reportName), data, 0600); err != nil {

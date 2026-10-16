@@ -21,3 +21,5 @@ _Avoid_: 到账证明、支付流水。
 
 **Pairing grant（配对授权）**：管理员为指定收款范围创建的短期、单次登记许可。
 _Avoid_: 长期设备凭据、商户授权。
+
+SPEC-020 authenticated health implemented with separate signature domain and shared transactional authorization/budget. No event or business writes. See health-testing.md; Android #24 is the cross-repository diagnostics/authorization UI batch. Matching/accounting/callback/New API remain next work, production auto-match remains disabled.
