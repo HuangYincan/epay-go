@@ -60,7 +60,8 @@ CREATE TABLE observer_credentials (
     FOREIGN KEY (environment, receiver_id, binding_version, device_id, provider) REFERENCES observer_bindings(environment, receiver_id, binding_version, device_id, provider) ON DELETE RESTRICT,
     FOREIGN KEY (environment, source_class) REFERENCES observer_environments(environment, source_class) ON DELETE RESTRICT,
     UNIQUE (environment, key_id),
-    UNIQUE (environment, device_id, key_id)
+    UNIQUE (environment, device_id, key_id),
+    UNIQUE (environment, receiver_id, binding_version, device_id, provider, source_class, key_id)
 );
 CREATE TABLE observer_events (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -79,10 +80,13 @@ CREATE TABLE observer_events (
     provider_transaction_id text CHECK (char_length(provider_transaction_id) BETWEEN 1 AND 128 AND provider_transaction_id !~ '[[:cntrl:]]' AND provider_transaction_id <> event_id),
     body bytea NOT NULL CHECK (octet_length(body) BETWEEN 1 AND 16384),
     body_sha256 text NOT NULL CHECK (body_sha256 ~ '^[0-9a-f]{64}$' AND body_sha256 = encode(sha256(body), 'hex')),
+    first_key_id varchar(64) NOT NULL,
+    first_request_id text NOT NULL CHECK (first_request_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'),
     first_received_at_ms bigint NOT NULL CHECK (first_received_at_ms BETWEEN 0 AND 9007199254740991),
     processing_status text NOT NULL DEFAULT 'pending' CHECK (processing_status IN ('pending', 'needs_review')),
     UNIQUE (environment, device_id, event_id),
     UNIQUE (id, environment, device_id),
+    FOREIGN KEY (environment, receiver_id, binding_version, device_id, provider, source_class, first_key_id) REFERENCES observer_credentials(environment, receiver_id, binding_version, device_id, provider, source_class, key_id) ON DELETE RESTRICT,
     FOREIGN KEY (environment, receiver_id, binding_version, device_id, provider) REFERENCES observer_bindings(environment, receiver_id, binding_version, device_id, provider) ON DELETE RESTRICT,
     FOREIGN KEY (environment, source_class) REFERENCES observer_environments(environment, source_class) ON DELETE RESTRICT
 );
