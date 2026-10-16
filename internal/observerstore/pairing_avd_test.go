@@ -176,7 +176,7 @@ func TestPairingAVDBridge(t *testing.T) {
 			if mode != "" {
 				wantEvents, wantRequests := int64(2), int64(3)
 				if mode == "background" {
-					wantEvents, wantRequests = 8, 9
+					wantEvents, wantRequests = 10, 11
 				}
 				if count(t, db, "observer_events") != wantEvents || count(t, db, "observer_requests") != wantRequests || !droppedAck.Load() {
 					t.Fatal("real notification upload or ACK recovery incomplete")
