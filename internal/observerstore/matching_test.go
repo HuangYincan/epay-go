@@ -12,6 +12,7 @@ import (
 	"github.com/example/epay-go/internal/observerhttp"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -77,10 +78,14 @@ func newMatchFixture(t *testing.T, provider string, clocks ...int64) *matchFixtu
 
 // Prepare an ordinary immutable order/claim in the real transaction, with an
 // explicit clock for boundary tests. HTTP creation is exercised separately by SPEC-021.
-func (f *matchFixture) order(t *testing.T, no string, created int64) *model.Order {
+func (f *matchFixture) order(t *testing.T, no string, created int64, amounts ...string) *model.Order {
 	t.Helper()
 	expires := time.UnixMilli(created + 600000)
-	o := &model.Order{BaseModel: model.BaseModel{CreatedAt: time.UnixMilli(created)}, TradeNo: no, OutTradeNo: no, MerchantID: f.merchant.ID, ChannelID: f.channel.ID, PayType: f.enrollment.Provider, Amount: decimal.NewFromInt(10), RealAmount: decimal.NewFromInt(10), Fee: decimal.RequireFromString("0.10"), ObserverPayExpiresAt: &expires, Name: "synthetic ordinary order"}
+	amount := decimal.NewFromInt(10)
+	if len(amounts) > 0 {
+		amount = decimal.RequireFromString(amounts[0])
+	}
+	o := &model.Order{BaseModel: model.BaseModel{CreatedAt: time.UnixMilli(created)}, TradeNo: no, OutTradeNo: no, MerchantID: f.merchant.ID, ChannelID: f.channel.ID, PayType: f.enrollment.Provider, Amount: amount, RealAmount: amount, Fee: decimal.RequireFromString("0.10"), ObserverPayExpiresAt: &expires, Name: "synthetic ordinary order"}
 	err := f.db.Transaction(func(tx *gorm.DB) error {
 		scope, err := observerstore.LockOrderScope(tx, o.ChannelID, o.MerchantID, o.PayType)
 		if err != nil {
@@ -539,5 +544,135 @@ func TestMatchOtherProviderClaimCannotBecomeCandidate(t *testing.T) {
 	other.order(t, "other-provider-order", pairingNow)
 	id, _ := f.receive(t, pairingNow+1000, pairingNow+1000, nil)
 	f.process(t, id, pairingNow+1000, "unmatched")
+	f.assertIncome(t, 0)
+}
+
+func TestMatchWorkerContinuesPastOneFailedEventAndRetriesIt(t *testing.T) {
+	now := time.Now().UnixMilli()
+	f := newMatchFixture(t, "wxpay", now)
+	f.order(t, "first-fails", now)
+	secondOrder := f.order(t, "second-succeeds", now, "10.01")
+	first, _ := f.receive(t, now, now, nil)
+	second, _ := f.receive(t, now, now, func(e map[string]any) { e["amount_minor"] = 1001 })
+	exec(t, f.db, fmt.Sprintf(`CREATE FUNCTION fail_first_match() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_pk=%d THEN RAISE EXCEPTION 'test first event failure'; END IF; RETURN NEW; END $$`, first))
+	exec(t, f.db, `CREATE TRIGGER fail_first_match BEFORE INSERT ON observer_match_decisions FOR EACH ROW EXECUTE FUNCTION fail_first_match()`)
+	if err := f.matcher.ProcessPending(context.Background(), 50); err == nil {
+		t.Fatal("per-event failure not reported")
+	}
+	var paidOrder int64
+	f.db.Raw(`SELECT order_id FROM observer_consumptions WHERE event_pk=?`, second).Scan(&paidOrder)
+	if paidOrder != secondOrder.ID || count(t, f.db, "observer_consumptions") != 1 {
+		t.Fatal("one failed event blocked unrelated candidate")
+	}
+	exec(t, f.db, `DROP TRIGGER fail_first_match ON observer_match_decisions`)
+	// Prepare elapsed coordination backoff without changing evidence or sleeping.
+	exec(t, f.db, `UPDATE observer_match_retries SET next_attempt_at_ms=? WHERE event_pk=?`, time.Now().UnixMilli()-1, first)
+	if err := f.matcher.ProcessPending(context.Background(), 50); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, f.db, "observer_consumptions") != 2 {
+		t.Fatal("failed event not recovered")
+	}
+	var merchant model.Merchant
+	f.db.First(&merchant, f.merchant.ID)
+	if !merchant.Balance.Equal(decimal.RequireFromString("23.06")) {
+		t.Fatal("recovery changed total income")
+	}
+}
+func TestMatchWorkerCancellationReleasesBlockedReceiver(t *testing.T) {
+	now := time.Now().UnixMilli()
+	f := newMatchFixture(t, "wxpay", now)
+	f.order(t, "lock-recovery", now)
+	f.receive(t, now, now, nil)
+	held := f.db.Begin()
+	if held.Error != nil {
+		t.Fatal(held.Error)
+	}
+	defer held.Rollback()
+	if err := held.Exec(`SELECT 1 FROM observer_receivers WHERE environment='test' AND receiver_id=? FOR UPDATE`, f.enrollment.ReceiverID).Error; err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := f.matcher.ProcessPending(ctx, 50); err == nil {
+		t.Fatal("cancelled lock wait reported success")
+	}
+	held.Rollback()
+	if err := f.matcher.ProcessPending(context.Background(), 50); err != nil {
+		t.Fatal(err)
+	}
+	f.assertIncome(t, 1)
+}
+
+func TestMatchLockedPrefixDoesNotStarveIndependentReceiverAfterRestart(t *testing.T) {
+	now := time.Now().UnixMilli()
+	f := newMatchFixture(t, "wxpay", now)
+	f.order(t, "blocked-wx", now)
+	for i := 0; i < 4; i++ {
+		f.receive(t, now, now, nil)
+	}
+	var actor int64
+	f.db.Raw(`SELECT id FROM admins WHERE username='pairing-test'`).Scan(&actor)
+	_, token, err := f.authority.CreateGrant(context.Background(), "fixture-receiver-ali", "replace", actor, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := request()
+	req.EnrollmentID = "22222222-1111-4111-8111-111111111111"
+	ali, err := f.authority.Redeem(context.Background(), token, req, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.authority.Activate(context.Background(), token, req, now); err != nil {
+		t.Fatal(err)
+	}
+	other := *f
+	other.enrollment = ali
+	other.channel = model.Channel{Name: "independent-ali", Plugin: "epay", Status: 1}
+	if err := f.db.Create(&other.channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	exec(t, f.db, `INSERT INTO observer_channel_aliases VALUES (?,'test','fixture-receiver-ali','alipay')`, other.channel.ID)
+	other.order(t, "independent-ali", now)
+	id, _ := other.receive(t, now, now, nil)
+	held := f.db.Begin()
+	if held.Error != nil {
+		t.Fatal(held.Error)
+	}
+	defer held.Rollback()
+	if err := held.Exec(`SELECT 1 FROM observer_receivers WHERE environment='test' AND receiver_id=? FOR UPDATE`, f.enrollment.ReceiverID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.matcher.ProcessPending(context.Background(), 50); err == nil {
+		t.Fatal("locked prefix did not exercise failure")
+	}
+	if count(t, f.db, "observer_match_retries") != 4 {
+		t.Fatal("failed prefix backoff not durable")
+	}
+	restarted, err := observerstore.NewMatcher(f.db, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.ProcessPending(context.Background(), 50); err != nil {
+		t.Fatal(err)
+	}
+	var outcome string
+	f.db.Raw(`SELECT outcome FROM observer_match_decisions WHERE event_pk=?`, id).Scan(&outcome)
+	if outcome != "matched" {
+		t.Fatal("independent receiver starved behind locked prefix")
+	}
+	f.assertIncome(t, 1)
+}
+func TestMatchBareCreditedInsertCannotBypassAudit(t *testing.T) {
+	f := newMatchFixture(t, "wxpay")
+	id, _ := f.receive(t, pairingNow, pairingNow, nil)
+	err := f.db.Exec(`INSERT INTO observer_events(environment,device_id,event_id,receiver_id,binding_version,provider,amount_minor,currency,observed_at_ms,parser_version,source_class,identity_confidence,provider_transaction_id,body,body_sha256,first_key_id,first_request_id,first_received_at_ms,processing_status)
+ SELECT environment,device_id,'bbbbbbbb-1111-4111-8111-111111111111',receiver_id,binding_version,provider,amount_minor,currency,observed_at_ms,parser_version,source_class,identity_confidence,provider_transaction_id,body,body_sha256,first_key_id,first_request_id,first_received_at_ms,'credited' FROM observer_events WHERE id=?`, id).Error
+	if err == nil || !strings.Contains(err.Error(), "observer_settlement_incomplete") {
+		t.Fatalf("bare credited insert bypassed settlement constraint: %v", err)
+	}
+	if count(t, f.db, "observer_events") != 1 {
+		t.Fatal("invalid event committed")
+	}
 	f.assertIncome(t, 0)
 }

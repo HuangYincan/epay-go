@@ -54,7 +54,7 @@ BEGIN
 END $$;
 CREATE CONSTRAINT TRIGGER observer_decision_complete AFTER INSERT ON observer_match_decisions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION observer_check_settlement();
 CREATE CONSTRAINT TRIGGER observer_consumption_complete AFTER INSERT ON observer_consumptions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION observer_check_settlement();
-CREATE CONSTRAINT TRIGGER observer_credit_complete AFTER UPDATE ON observer_events DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION observer_check_settlement();
+CREATE CONSTRAINT TRIGGER observer_credit_complete AFTER INSERT OR UPDATE ON observer_events DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION observer_check_settlement();
 CREATE FUNCTION observer_keep_terminal_event() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF OLD.processing_status <> 'pending' AND NEW.processing_status <> OLD.processing_status THEN RAISE EXCEPTION 'observer_terminal_event'; END IF;
@@ -74,3 +74,10 @@ BEGIN
     RETURN NEW;
 END $$;
 CREATE TRIGGER observer_claim_fee_guard BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION observer_keep_claim_fee();
+
+CREATE TABLE observer_match_retries (
+    event_pk bigint PRIMARY KEY REFERENCES observer_events(id),
+    attempts integer NOT NULL CHECK (attempts BETWEEN 1 AND 10),
+    next_attempt_at_ms bigint NOT NULL CHECK (next_attempt_at_ms BETWEEN 0 AND 9007199254740991)
+);
+CREATE INDEX observer_pending_events ON observer_events(environment,first_received_at_ms,id) WHERE processing_status='pending';

@@ -206,7 +206,10 @@ func persistDecision(tx *gorm.DB, d MatchingDecision, ledgerID int64) error {
 			return err
 		}
 	}
-	return tx.Exec(`UPDATE observer_events SET processing_status=? WHERE id=?`, state, d.EventPK).Error
+	if err := tx.Exec(`UPDATE observer_events SET processing_status=? WHERE id=?`, state, d.EventPK).Error; err != nil {
+		return err
+	}
+	return tx.Exec(`DELETE FROM observer_match_retries WHERE event_pk=?`, d.EventPK).Error
 }
 
 func lockMatchingAuthority(tx *gorm.DB, e eventRow, now int64) (bool, error) {
@@ -249,16 +252,37 @@ func (m *Matcher) ProcessPending(ctx context.Context, limit int) error {
 	if limit < 1 || limit > 50 {
 		return ErrInput
 	}
+	batch, cancelBatch := context.WithTimeout(ctx, 20*time.Second)
+	defer cancelBatch()
 	var ids []int64
-	if err := m.db.WithContext(ctx).Raw(`SELECT id FROM observer_events WHERE environment=? AND processing_status='pending' ORDER BY id LIMIT ?`, m.environment, limit).Scan(&ids).Error; err != nil {
+	if err := m.db.WithContext(batch).Raw(`SELECT e.id FROM observer_events e LEFT JOIN observer_match_retries r ON r.event_pk=e.id
+        WHERE e.environment=? AND e.processing_status='pending' AND (r.next_attempt_at_ms IS NULL OR r.next_attempt_at_ms<=?)
+        ORDER BY coalesce(r.next_attempt_at_ms,e.first_received_at_ms),e.id LIMIT ?`, m.environment, time.Now().UnixMilli(), limit).Scan(&ids).Error; err != nil {
 		return err
 	}
+	var firstError error
 	for _, id := range ids {
-		if _, err := m.ProcessEvent(ctx, id, time.Now().UnixMilli()); err != nil {
+		if err := batch.Err(); err != nil {
 			return err
 		}
+		eventContext, cancelEvent := context.WithTimeout(batch, 5*time.Second)
+		_, err := m.ProcessEvent(eventContext, id, time.Now().UnixMilli())
+		cancelEvent()
+		if err != nil {
+			// Batch cancellation must not discard the failure's durable backoff.
+			// The parent context still bounds this separate coordination transaction.
+			retryContext, cancelRetry := context.WithTimeout(ctx, time.Second)
+			retryErr := m.deferFailedEvent(retryContext, id, time.Now().UnixMilli())
+			cancelRetry()
+			if firstError == nil {
+				firstError = err
+			}
+			if retryErr != nil {
+				return retryErr
+			}
+		}
 	}
-	return nil
+	return firstError
 }
 func (m *Matcher) Run(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
@@ -273,4 +297,27 @@ func (m *Matcher) Run(ctx context.Context) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// Event -> retry is a short coordination transaction and never waits on receiver
+// or order locks. Rechecking pending prevents a late failure from reviving credit.
+func (m *Matcher) deferFailedEvent(ctx context.Context, eventPK, now int64) error {
+	return m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var event struct{ ProcessingStatus string }
+		row := tx.Raw(`SELECT processing_status FROM observer_events WHERE id=? AND environment=? FOR UPDATE`, eventPK, m.environment).Scan(&event)
+		if row.Error != nil {
+			return row.Error
+		}
+		if row.RowsAffected != 1 || event.ProcessingStatus != "pending" {
+			return nil
+		}
+		var retry struct{ Attempts int }
+		if err := tx.Raw(`SELECT attempts FROM observer_match_retries WHERE event_pk=?`, eventPK).Scan(&retry).Error; err != nil {
+			return err
+		}
+		attempts := min(10, retry.Attempts+1)
+		delay := min(int64(900000), int64(60000)<<min(attempts-1, 4))
+		return tx.Exec(`INSERT INTO observer_match_retries(event_pk,attempts,next_attempt_at_ms) VALUES (?,?,?)
+      ON CONFLICT(event_pk) DO UPDATE SET attempts=EXCLUDED.attempts,next_attempt_at_ms=EXCLUDED.next_attempt_at_ms`, eventPK, attempts, now+delay).Error
+	})
 }
