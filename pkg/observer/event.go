@@ -12,18 +12,18 @@ import (
 )
 
 type Event struct {
-	SchemaVersion int64
-	EventID string
-	DeviceID string
-	ReceiverID string
-	BindingVersion int64
-	Provider string
-	AmountMinor int64
-	Currency string
-	ObservedAt int64
-	ParserVersion string
-	SourceClass string
-	IdentityConfidence string
+	SchemaVersion         int64
+	EventID               string
+	DeviceID              string
+	ReceiverID            string
+	BindingVersion        int64
+	Provider              string
+	AmountMinor           int64
+	Currency              string
+	ObservedAt            int64
+	ParserVersion         string
+	SourceClass           string
+	IdentityConfidence    string
 	ProviderTransactionID string // Empty means absent, never an invented event ID.
 }
 

@@ -26,16 +26,16 @@ var lowerSignature = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // VerifiedRequest is not an ACK. The caller must authorize scope/revocation,
 // persist replay and event records atomically, and only then send a receipt.
 type VerifiedRequest struct {
-	Event Event
-	RequestID string
-	SentAt int64
+	Event      Event
+	RequestID  string
+	SentAt     int64
 	BodySHA256 string
-	body []byte
+	body       []byte
 }
 
 // BodyBytes returns a defensive copy of the bytes whose signature was verified.
 func (v *VerifiedRequest) BodyBytes() []byte { return append([]byte(nil), v.body...) }
-func (v *VerifiedRequest) String() string { return "VerifiedRequest(redacted)" }
+func (v *VerifiedRequest) String() string    { return "VerifiedRequest(redacted)" }
 
 // VerifyRequest verifies exact bytes using an independently resolved device key.
 // The caller must bound the actual HTTP body before invoking this pure function.
