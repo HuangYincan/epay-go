@@ -3,9 +3,11 @@ package database
 
 import (
 	"fmt"
+    "context"
 	"log"
 
 	"github.com/example/epay-go/internal/model"
+    "github.com/example/epay-go/internal/observerstore"
 )
 
 // Migrate 自动迁移数据库表
@@ -36,6 +38,10 @@ func Migrate() error {
 	if err != nil {
 		return err
 	}
+
+	if err := observerstore.Migrate(context.Background(), DB); err != nil {
+        return err
+    }
 
 	log.Println("Database migrations completed")
 	return nil
