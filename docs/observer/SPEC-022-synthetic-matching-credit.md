@@ -12,9 +12,11 @@
 
 ## 候选与时间
 
-按event的environment/receiver/provider/amount查询永久claim；同范围所有alias下、创建时间不晚于first_received_at的同额历史订单都参与候选计数，包括已付/退款/归档订单。不能只查未付单，也不能选最早/最近兜底。保存策略版本、候选计数、固定截止时间、决定/固定原因及唯一候选order关联。
+首次认证接收在receiver锁内保存服务端候选快照：当时的claim订单、符合截止时间的候选数量与唯一候选ID（若有）。该快照与request/event同事务且不可改写；重复请求不刷新。没有快照的旧event不追溯补建。这样事件先到、订单在同一毫秒后创建时也不会被补匹配。此ID仅由服务端数据库查询产生，不来自Android通知或调用方。
 
-零候选unmatched且不等待未来订单；多候选ambiguous；缺少claim或与唯一原订单范围不符evidence_insufficient；已付/已退款/已消费候选duplicate_suspected，零新增收入。原channel/provider/merchant与claim必须吻合。当前通道禁用/归档不丢弃此前窗口内已接收的合格证据；创建与Checkout依然按SPEC021拒绝新窗口/码。
+匹配按event的environment/receiver/provider/amount查询永久claim，并与首次快照逐项核对；同范围所有alias下、创建时间不晚于first_received_at的同额历史订单都参与候选计数，包括已付/退款/归档订单。不能只查未付单，也不能选最早/最近兜底。保存策略版本、候选计数、固定截止时间、决定/固定原因及唯一候选order关联。
+
+首次快照零候选unmatched且不等待未来订单；当时有候选但当前集合改变则evidence_insufficient；多候选ambiguous；缺少claim或与唯一原订单范围不符evidence_insufficient；已付/已退款/已消费候选duplicate_suspected，零新增收入。原channel/provider/merchant与claim必须吻合。当前通道禁用/归档不丢弃此前窗口内已接收的合格证据；创建与Checkout依然按SPEC021拒绝新窗口/码。
 
 时间规则沿用SPEC003：created_at <= first_received_at < expires_at，created_at <= observed_at < expires_at，-2000 <= first_received_at-observed_at <=120000ms。超未来偏差/观察早于订单/处理时钟倒退为clock_error，超过120秒为stale_observation，支付窗外expired。worker处理延迟不更新first_received_at，也不延长窗口。通知时间仍非平台可信时间。
 
