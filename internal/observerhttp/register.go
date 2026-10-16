@@ -16,11 +16,19 @@ func Router(service *observerstore.PairingService) *gin.Engine {
 	r.RedirectFixedPath = false
 	r.Use(func(c *gin.Context) {
 		defer func() {
-			if recover() != nil { c.Abort(); failure(c.Writer, 503, "unavailable") }
+			if recover() != nil {
+				c.Abort()
+				failure(c.Writer, 503, "unavailable")
+			}
 		}()
 		c.Next()
 	})
 	h := NewPairingHandler(service)
+	r.NoRoute(func(c *gin.Context) {
+		if h.Guard(c.Writer, c.Request) {
+			failure(c.Writer, 400, "invalid_route")
+		}
+	})
 	r.POST("/api/observer/v1/pairing/:operation", gin.WrapH(h))
 	adminRoutes := r.Group("/api/admin")
 	adminRoutes.Use(func(c *gin.Context) {

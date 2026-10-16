@@ -18,7 +18,7 @@ inspect body 精确字段：`{"schema_version":1}`。返回字段：schema_versi
 
 redeem/activate body 精确字段：schema_version、enrollment_id（小写UUIDv4）、resume_secret（独立32随机字节canonical base64url）。客户端首次发送前以Android Keystore AES-GCM保护 token/resume_secret/inspect快照并原子写入noBackup pending日志。兑换成功创建 pending credential；服务器只保存 token/resume 摘要。redeem 返回 schema_version、enrollment_id、origin、environment、receiver_id、provider、source_class、device_id、binding_version、key_id、key_base64url、not_before_ms、expires_at_ms。所有响应范围须与确认快照相符。
 
-先幂等导入 HMAC KeyStore，再 activate；activate 返回 schema_version、enrollment_id、key_id、state=`active`，不返回key。最后在Room单事务保存完整非秘密范围/凭据元数据并激活采集/队列，清除pending日志。每步崩溃都可从pending日志恢复；已激活后丢响应可再次activate。清日志失败不取消已提交Room激活。旧UNBOUND事件绝不补绑。
+新凭据not_before若领先设备时钟不超过5秒，后台等待设备实际到达该时刻再严格重验；较大时差或到期仍拒绝，不回拨/放宽时间门槛。先幂等导入 HMAC KeyStore，再 activate；activate 返回 schema_version、enrollment_id、key_id、state=`active`，不返回key。最后在Room单事务保存完整非秘密范围/凭据元数据并激活采集/队列，清除pending日志。每步崩溃都可从pending日志恢复；已激活后丢响应可再次activate。清日志失败不取消已提交Room激活。旧UNBOUND事件绝不补绑。Room另外保存本地capture epoch；暂停使旧epoch失效，每次激活生成新epoch。即使轮换保留相同远端binding scope，暂停期间取得的缓存快照在延迟持久化后也不得绑定。
 
 同grant+enrollment+resume在原5分钟窗口返回同一密钥/身份，无重建、不延长有效期。恢复/激活仍检查环境、receiver、binding、grant和credential的有效性及撤销状态；不同enrollment/secret为409。窗口失效后needs_repair，经新grant重新配对。数据库提交失败不返回密钥或成功；HTTP响应丢失不能撤销已提交兑换。grant/receiver锁与凭据变更在同事务内；并发兑换只产生一组身份。rotate重试不得恢复被更新key取代的旧key。
 
@@ -29,6 +29,14 @@ redeem/activate body 精确字段：schema_version、enrollment_id（小写UUIDv
 服务限制同时请求数、总请求速率及每grant一分钟20次持久预算（包括错误恢复）。普通日志不记录Authorization、body、token、secret、key、签名；秘密不得进入URL。无效/陌生token统一错误。限流不是token盗取后的授权防护。
 
 ## 验收
+
+### 本地 HTTPS 验证链路
+
+`scripts/prepare_pairing_tls.py` 使用已有openssl在私有目录生成2天CA与仅localhost/127.0.0.1 SAN的服务证书。私钥不进仓库/APK。只有显式 `-PobserverFixtureCa=/private/path/ca.pem` 才为fixtureDebug注册生成资源，信任额外CA的domain严格为localhost且不含子域；其余主机及所有production构建保留system信任。无忽略证书、HostnameVerifier、全局trust manager或明文选项。省略属性必须恢复默认APK边界，即使旧生成文件尚在build目录。
+
+AVD通过任务专用adb reverse连接只发布到宿主127.0.0.1:18443的Docker测试TLS桥。桥只存在于`observeravd` build tag的Go测试二进制，复用实际配对service/router，使用自动创建/清理的独立PostgreSQL schema；不得作为网关部署入口。短期grant通过stdin传入debug测试客户端私有测试文件，instrumentation立即删除，再调用正常inspect/confirm/KeyStore/Room流程；无token命令行、共享存储或生产文件入口。两端报告只记录数量与状态，不含grant、密钥或设备身份。APK检查必须显式提供CA文件SHA-256并核对域范围；默认检查拒绝额外CA，Release检查拒绝fixture CA资源。
+
+此链路只验证真实HTTPS配对与新事件排队，不代表事件HTTP接收、支付或New API闭环通过。后续商户回调的safehttp仍需独立设计/验证。
 
 - PAIR-01：双方严格JSON与canonical base64向量、范围比较、错误解析。
 - PAIR-02：真实PostgreSQL并发兑换/冲突/commit失败/服务重建恢复；密文不能跨scope或KEK解密。

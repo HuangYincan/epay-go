@@ -82,6 +82,9 @@ func TestPairingActualTLSAndStrictHTTP(t *testing.T) {
 		mutate           func(*http.Request)
 	}{
 		{"query", observer.PairingPrefix + "inspect?x=y", `{"schema_version":1}`, 400, nil},
+		{"trailing slash", observer.PairingPrefix + "inspect/", `{"schema_version":1}`, 400, nil},
+		{"extra segment", observer.PairingPrefix + "inspect/extra", `{"schema_version":1}`, 400, nil},
+		{"wrong method", observer.PairingPrefix + "inspect", `{"schema_version":1}`, 400, func(r *http.Request) { r.Method = "GET" }},
 		{"duplicate JSON", observer.PairingPrefix + "inspect", `{"schema_version":1,"schema_version":1}`, 400, nil},
 		{"media type", observer.PairingPrefix + "inspect", `{"schema_version":1}`, 415, func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") }},
 		{"duplicate authorization", observer.PairingPrefix + "inspect", `{"schema_version":1}`, 401, func(r *http.Request) { r.Header.Add("Authorization", "ObserverPairing "+token) }},

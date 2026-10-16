@@ -35,10 +35,14 @@ func ValidOrigin(value string) bool {
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
 		return false
 	}
-	if strings.HasSuffix(u.Host, ":") { return false }
+	if strings.HasSuffix(u.Host, ":") {
+		return false
+	}
 	if u.Port() != "" {
 		port, err := strconv.Atoi(u.Port())
-		if err != nil || port < 1 || port > 65535 { return false }
+		if err != nil || port < 1 || port > 65535 {
+			return false
+		}
 	}
 	return value == "https://"+u.Host && u.Host == strings.ToLower(u.Host)
 }

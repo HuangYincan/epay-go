@@ -246,12 +246,8 @@ func (p *PairingService) Inspect(ctx context.Context, token string, now int64) (
 				return err
 			}
 		} else {
-			version, device, active, err := currentBinding(tx, p.environment, g.ReceiverID)
-			if err != nil {
+			if _, _, err := p.grantBinding(tx, g); err != nil {
 				return err
-			}
-			if version != g.ExpectedBindingVersion || g.Mode == "rotate" && (!active || device != g.TargetDeviceID) {
-				return ErrBinding
 			}
 		}
 		result = p.scope(g)
@@ -333,13 +329,20 @@ func (p *PairingService) enroll(ctx context.Context, token string, req observer.
 	}
 	return result, nil
 }
-func (p *PairingService) issue(tx *gorm.DB, g *grantRow, req observer.PairingRequest, now int64) error {
+func (p *PairingService) grantBinding(tx *gorm.DB, g grantRow) (int, string, error) {
 	generation, device, active, err := currentBinding(tx, p.environment, g.ReceiverID)
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 	if generation != g.ExpectedBindingVersion || g.Mode == "rotate" && (!active || device != g.TargetDeviceID) {
-		return ErrBinding
+		return 0, "", ErrBinding
+	}
+	return generation, device, nil
+}
+func (p *PairingService) issue(tx *gorm.DB, g *grantRow, req observer.PairingRequest, now int64) error {
+	generation, device, err := p.grantBinding(tx, *g)
+	if err != nil {
+		return err
 	}
 	if g.Mode == "replace" {
 		if generation == 2147483647 {
