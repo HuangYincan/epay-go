@@ -35,10 +35,16 @@ jobs:
           cache: true
       - name: Test with race detector and PostgreSQL
         run: go test -race ./...
+      - name: Fuzz strict observer JSON decoder
+        run: go test ./pkg/observer -run '^$' -fuzz=FuzzParseEvent -fuzztime=3s -parallel=2
       - name: Vet
         run: go vet ./...
       - name: Build backend
         run: go build -o /tmp/epay-server ./cmd/server
+      - name: Check observer protocol formatting
+        run: |
+          gofmt -d pkg/observer
+          test -z "$(gofmt -l pkg/observer)"
       - name: Check reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
   frontend:
