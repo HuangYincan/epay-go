@@ -79,26 +79,29 @@ func (p *PairingService) SetConfirmationPaused(ctx context.Context, receiver str
 }
 
 type EventTrace struct {
-	EventPK            int64   `json:"event_pk"`
-	EventID            string  `json:"event_id"`
-	Provider           string  `json:"provider"`
-	AmountMinor        int64   `json:"amount_minor"`
-	ObservedAtMs       int64   `json:"observed_at_ms"`
-	FirstReceivedAtMs  int64   `json:"first_received_at_ms"`
-	ParserVersion      string  `json:"parser_version"`
-	IdentityConfidence string  `json:"identity_confidence"`
-	ProcessingStatus   string  `json:"processing_status"`
-	PolicyVersion      *string `json:"policy_version"`
-	Outcome            *string `json:"outcome"`
-	Reason             *string `json:"reason"`
-	CandidateCount     *int64  `json:"candidate_count"`
-	CandidateOrderID   *int64  `json:"candidate_order_id"`
-	OrderTradeNo       *string `json:"order_trade_no"`
-	MerchantOrderNo    *string `json:"merchant_order_no"`
-	LedgerID           *int64  `json:"ledger_id"`
-	IncomeMinor        *int64  `json:"income_minor"`
-	NotifyStatus       *int    `json:"notify_status"`
-	NotifyCount        *int    `json:"notify_count"`
+	EventPK               int64   `json:"event_pk"`
+	EventID               string  `json:"event_id"`
+	Provider              string  `json:"provider"`
+	AmountMinor           int64   `json:"amount_minor"`
+	ObservedAtMs          int64   `json:"observed_at_ms"`
+	FirstReceivedAtMs     int64   `json:"first_received_at_ms"`
+	ParserVersion         string  `json:"parser_version"`
+	IdentityConfidence    string  `json:"identity_confidence"`
+	ProcessingStatus      string  `json:"processing_status"`
+	PolicyVersion         *string `json:"policy_version"`
+	Outcome               *string `json:"outcome"`
+	Reason                *string `json:"reason"`
+	CandidateCount        *int64  `json:"candidate_count"`
+	CandidateOrderID      *int64  `json:"candidate_order_id"`
+	CandidateOrderTradeNo *string `json:"candidate_order_trade_no"`
+	CandidateOrderStatus  *int    `json:"candidate_order_status"`
+	OrderStatus           *int    `json:"order_status"`
+	OrderTradeNo          *string `json:"order_trade_no"`
+	MerchantOrderNo       *string `json:"merchant_order_no"`
+	LedgerID              *int64  `json:"ledger_id"`
+	IncomeMinor           *int64  `json:"income_minor"`
+	NotifyStatus          *int    `json:"notify_status"`
+	NotifyCount           *int    `json:"notify_count"`
 }
 type TraceResult struct {
 	SchemaVersion     int                     `json:"schema_version"`
@@ -133,8 +136,11 @@ func (p *PairingService) QueryEventTrace(ctx context.Context, receiver string, b
 			return err
 		}
 		if err := db.Raw(`SELECT e.id AS event_pk,e.event_id,e.provider,e.amount_minor,e.observed_at_ms,e.first_received_at_ms,e.parser_version,e.identity_confidence,e.processing_status,
- d.policy_version,d.outcome,d.reason,d.candidate_count,d.order_id AS candidate_order_id,o.trade_no AS order_trade_no,o.out_trade_no AS merchant_order_no,c.ledger_id,(l.amount*100)::bigint AS income_minor,o.notify_status,o.notify_count
+ d.policy_version,d.outcome,d.reason,COALESCE(d.candidate_count,s.candidate_count) AS candidate_count,COALESCE(d.order_id,s.candidate_order_id) AS candidate_order_id,co.trade_no AS candidate_order_trade_no,co.status AS candidate_order_status,o.status AS order_status,o.trade_no AS order_trade_no,o.out_trade_no AS merchant_order_no,c.ledger_id,(l.amount*100)::bigint AS income_minor,o.notify_status,o.notify_count
  FROM observer_events e LEFT JOIN observer_match_decisions d ON d.event_pk=e.id
+ LEFT JOIN observer_candidate_snapshots s ON s.event_pk=e.id
+ LEFT JOIN orders co ON co.id=COALESCE(d.order_id,s.candidate_order_id) AND EXISTS (
+ SELECT 1 FROM observer_channel_aliases a WHERE a.channel_id=co.channel_id AND a.provider=co.pay_type AND a.environment=e.environment AND a.receiver_id=e.receiver_id AND a.provider=e.provider)
  LEFT JOIN observer_consumptions c ON c.event_pk=e.id LEFT JOIN orders o ON o.id=c.order_id LEFT JOIN balance_records l ON l.id=c.ledger_id
  WHERE e.environment=? AND e.receiver_id=? AND (?=0 OR e.id<?) ORDER BY e.id DESC LIMIT ?`, p.environment, receiver, before, before, limit).Scan(&result.Events).Error; err != nil {
 			return err

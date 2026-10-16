@@ -8,6 +8,8 @@
 - `POST /api/admin/observer/confirmation`：严格JSON `{schema_version:1,receiver_id,paused,reason_code}`，reason仅`incident`、`maintenance`、`review_completed`。记录已认证且未删除管理员ID、时间、操作和固定reason；同事务变更暂停状态。客户端不得提供actor或人工订单指派。
 - 暂停不同于吊销设备或禁用receiver：仍正常认证、存储事件并返回持久ACK。ACK继续不表示充值。
 
+查询中 `order_trade_no`/`merchant_order_no`/`order_status` 仅属于已消费订单；唯一候选单独返回 `candidate_order_trade_no`/`candidate_order_status`，不表示支付。没有对应订单时字段为null。订单状态反映当前状态（包括退款），事件决定与原收入保持历史事实。
+
 ## 原子边界与历史
 
 - 控制操作沿用environment→receiver锁顺序，与接收/匹配串行化。暂停时，已pending事件在同一事务冻结为needs_review/evidence_insufficient/confirmation_paused，并保留候选快照、原字节、事件/金额历史；清理其匹配退避。已credited或终局事件不变。

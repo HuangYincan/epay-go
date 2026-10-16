@@ -65,6 +65,21 @@ func TestConfirmationPauseFreezesOldAndNewEvidence(t *testing.T) {
 	if err != nil || len(page.Events) != 1 || page.Events[0].EventPK != first {
 		t.Fatal("trace pagination", err)
 	}
+	pausedCandidate := page.Events[0]
+	if pausedCandidate.OrderTradeNo != nil || pausedCandidate.OrderStatus != nil || pausedCandidate.CandidateOrderTradeNo == nil || *pausedCandidate.CandidateOrderTradeNo != "before-pause" || pausedCandidate.CandidateOrderStatus == nil || *pausedCandidate.CandidateOrderStatus != 0 {
+		t.Fatalf("paused candidate trace=%+v", pausedCandidate)
+	}
+	if trace.Events[0].OrderStatus == nil || *trace.Events[0].OrderStatus != 1 {
+		t.Fatal("credited order status missing")
+	}
+	exec(t, f.db, `UPDATE orders SET status=2 WHERE trade_no='future'`)
+	refunded, err := f.authority.QueryEventTrace(ctx, f.enrollment.ReceiverID, 0, 20, actor)
+	if err != nil || refunded.Events[0].OrderStatus == nil || *refunded.Events[0].OrderStatus != 2 || refunded.Events[0].ProcessingStatus != "credited" || refunded.Events[0].LedgerID == nil {
+		t.Fatalf("refund trace=%+v err=%v", refunded, err)
+	}
+	if count(t, f.db, "observer_consumptions") != 1 || count(t, f.db, "balance_records") != 1 {
+		t.Fatal("refund trace changed historical consumption or income")
+	}
 	encoded, _ := json.Marshal(trace)
 	for _, field := range []string{"device_id", "body_base64", "key_id", "signature", "key_ciphertext"} {
 		if bytes.Contains(encoded, []byte(field)) {
