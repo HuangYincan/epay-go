@@ -31,12 +31,15 @@ func TestPairingAVDBridge(t *testing.T) {
 		t.Skip("explicit private AVD directory required")
 	}
 	mode := os.Getenv("OBSERVER_AVD_MODE")
-	if mode != "" && mode != "upload" {
+	if mode != "" && mode != "upload" && mode != "background" {
 		t.Fatal("unknown AVD mode")
 	}
 	marker, reportName := "device-paired", "server-result.json"
 	if mode == "upload" {
 		marker, reportName = "device-uploaded", "upload-server-result.json"
+	}
+	if mode == "background" {
+		marker, reportName = "device-background", "background-server-result.json"
 	}
 	db, _, actor := pairingDB(t)
 	cipher, err := observerstore.NewKeyCipher("avd-test-kek", bytes.Repeat([]byte{42}, 32))
@@ -76,7 +79,7 @@ func TestPairingAVDBridge(t *testing.T) {
 				return
 			}
 		}
-		if mode == "upload" && r.URL.Path == observer.Path && !droppedAck.Load() {
+		if mode != "" && r.URL.Path == observer.Path && !droppedAck.Load() {
 			// Commit through the real receiver, then deliberately lose only the ACK
 			// body. A valid 202 without a receipt must not finish the Android lease.
 			recorded := httptest.NewRecorder()
@@ -135,6 +138,18 @@ func TestPairingAVDBridge(t *testing.T) {
 		case <-timeout.C:
 			t.Fatal("AVD evidence timeout")
 		case <-ticker.C:
+			if mode == "background" {
+				// Host fault orchestration observes only durable counts, without
+				// starting instrumentation (which itself starts the Android app).
+				progress, _ := json.Marshal(map[string]int64{"events": count(t, db, "observer_events"), "requests": count(t, db, "observer_requests")})
+				path := filepath.Join(directory, "background-progress.json")
+				if err := os.WriteFile(path+".tmp", progress, 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(path+".tmp", path); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if _, err := os.Stat(filepath.Join(directory, "refresh-grants")); err == nil {
 				if err := os.Remove(filepath.Join(directory, "refresh-grants")); err != nil {
 					t.Fatal(err)
@@ -158,8 +173,12 @@ func TestPairingAVDBridge(t *testing.T) {
 				t.Fatal("Android followed a credential-bearing redirect")
 			}
 			report := map[string]any{"layer": "emulator synthetic pairing over HTTPS", "active_credentials": 2, "providers": []string{"wxpay", "alipay"}, "events": count(t, db, "observer_events"), "payment_verified": false, "redirect_requests": redirected.Load()}
-			if mode == "upload" {
-				if count(t, db, "observer_events") != 2 || count(t, db, "observer_requests") != 3 || !droppedAck.Load() {
+			if mode != "" {
+				wantEvents, wantRequests := int64(2), int64(3)
+				if mode == "background" {
+					wantEvents, wantRequests = 8, 9
+				}
+				if count(t, db, "observer_events") != wantEvents || count(t, db, "observer_requests") != wantRequests || !droppedAck.Load() {
 					t.Fatal("real notification upload or ACK recovery incomplete")
 				}
 				var providers int64
@@ -170,7 +189,7 @@ func TestPairingAVDBridge(t *testing.T) {
 					t.Fatal("provider/evidence semantics changed")
 				}
 				report["layer"] = "emulator synthetic notifications over signed HTTPS"
-				report["requests"] = 3
+				report["requests"] = wantRequests
 				report["ack_body_dropped"] = true
 				report["event_conflicts"] = count(t, db, "observer_event_conflicts")
 			}
