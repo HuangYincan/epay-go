@@ -4,7 +4,7 @@
 
 ## 技术栈
 
-- 后端：Go 1.26.8+、Gin、GORM、PostgreSQL、Redis
+- 后端：Go 1.26.9+、Gin、GORM、PostgreSQL、Redis
 - 前端：Node.js 22、Vue 3、Vite、Arco Design
 - 部署：Docker Compose、Nginx / Caddy
 

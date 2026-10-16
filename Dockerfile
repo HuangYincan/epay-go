@@ -1,6 +1,6 @@
 # epay-go/Dockerfile
 # 构建阶段
-FROM golang:1.26.8-alpine AS builder
+FROM golang:1.26.9-alpine AS builder
 
 WORKDIR /app
 
