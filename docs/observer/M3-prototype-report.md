@@ -4,7 +4,7 @@
 
 网关`9a96f72`，Android资格修复`8ff7f40`与最终联调分支，New API基线`633b4c5b190dc1af99a2814391354d86948e7943`加本地`42c3424d3ce3b82d71668dba2b84f58315d7d078`金额补丁（AGPL，未向上游推送）。本库不复制New API实现。
 
-- 默认全仓race211项、observersynthetic322项，0测试失败/跳过（每构建另有14个无测试文件package）；双构建vet通过。真实PostgreSQL包含20并发匹配、控制暂停/接收/结算串行、审计不可变、事务故障与退款状态追踪。
+- 原最终全仓race211项、observersynthetic322项，0测试失败/跳过（每构建另有14个无测试文件package）；双构建vet通过。真实PostgreSQL包含20并发匹配、控制暂停/接收/结算串行、审计不可变、事务故障与退款状态追踪。收尾另补TestNotificationExhaustionPersistsUntilExplicitResend，双构建定向race各1项通过；准备最后到期尝试并注入503，持久failed不自动重发，显式Resend只恢复通知、不改金额/账务。这是DB测试，不冒充数小时等待或进程重启；最终CI运行含此项的完整套件。
 - 新空lab普通New API订单经submit创建，独立App双渠道10元通知经Android实际HTTPS上传/验签/匹配/持久收入/回调，quota100,000,000→110,000,000。
 - 双渠道20元故障单：首次503后SIGKILL网关恢复；New API已提交丢回包后两进程SIGKILL恢复；最终quota130,000,000，四条消费/收入/成功topup。
 - 当前商户key轮换、合法签名错金额、错签、缺金额、未重签篡改、晚到重复和20并发实际TLS回调均无额外额度。新key相同内容为duplicate_suspected。
