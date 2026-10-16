@@ -17,3 +17,5 @@ create返回scope及短期token，其他接口不返回凭据。设备仅取得�
 每次兑换先持久化pending credential，再由客户端确认安全存储后activate。AES-GCM AAD绑定完整不可变身份，密文60字节。当前KEK不可原位重封装，运维轮换需另行实现，不把设备key轮换冒充KEK轮换。
 
 测试：`EPAY_TEST_DATABASE_DSN=... go test -race ./...`，必须指向专用测试库。测试自动创建并删除schema，覆盖迁移、并发、失效授权、持久限流、响应丢失、提交失败以及实际TLS路由。`observeravd`标签只编译临时AVD桥接测试，不能进入server二进制；步骤和跨库报告见观察器 `docs/testing/M2-pairing-report.md`。不上传任何生成的grant、私钥、KEK或数据库凭据。
+
+跨库记录：[epay-go PR #14](https://github.com/HuangYincan/epay-go/pull/14)、[Android PR #50](https://github.com/HuangYincan/epay-observer-android/pull/50)。网关代码f961159/Android代码9b74816；Go完整CI run38850098132通过，Android的28+8 AVD及双渠道实际HTTPS/负例证据位于配套报告。后续只更新文档时仍核对PR最终head checks，不把此配对子集当成整个#6完成。
