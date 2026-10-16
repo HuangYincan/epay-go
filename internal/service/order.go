@@ -11,6 +11,7 @@ import (
 
 	"github.com/example/epay-go/internal/database"
 	"github.com/example/epay-go/internal/model"
+	"github.com/example/epay-go/internal/observerstore"
 	"github.com/example/epay-go/internal/payment"
 	"github.com/example/epay-go/internal/repository"
 	"github.com/example/epay-go/pkg/safehttp"
@@ -21,6 +22,7 @@ import (
 )
 
 type OrderService struct {
+	now          func() time.Time
 	orderRepo    *repository.OrderRepository
 	channelRepo  *repository.ChannelRepository
 	merchantRepo *repository.MerchantRepository
@@ -29,6 +31,7 @@ type OrderService struct {
 
 func NewOrderService() *OrderService {
 	return &OrderService{
+		now:          time.Now,
 		orderRepo:    repository.NewOrderRepository(),
 		channelRepo:  repository.NewChannelRepository(),
 		merchantRepo: repository.NewMerchantRepository(),
@@ -121,16 +124,35 @@ func (s *OrderService) reserveOrder(ctx context.Context, req *CreateOrderRequest
 	firstQueryAt := FirstQueryAt(time.Now())
 	order := model.Order{TradeNo: utils.GenerateTradeNo(), OutTradeNo: req.OutTradeNo, MerchantID: req.MerchantID, ChannelID: channel.ID, PayType: req.PayType, Amount: req.Amount, RealAmount: req.Amount, Name: req.Name, NotifyURL: req.MerchantNotifyURL, ReturnURL: req.ReturnURL, ClientIP: req.ClientIP, PayMethod: method, Extra: extra, NextQueryAt: &firstQueryAt}
 	err := database.Get().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		scope, err := observerstore.LockOrderScope(tx, channel.ID, req.MerchantID, req.PayType)
+		if err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(channel, channel.ID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fmt.Errorf("%w: 通道已删除", errChannelUnavailable)
 			}
 			return err
 		}
+		// Alias insertion takes a channel lock. Recheck after ours to reject a
+		// concurrent transition rather than creating an unclaimed legacy order.
+		mapped, err := observerstore.ChannelHasObserverAlias(tx, channel.ID)
+		if err != nil {
+			return err
+		}
+		if mapped != (scope != nil) {
+			return observerstore.ErrSyntheticDisabled
+		}
 		if channel.Status != 1 {
+			if scope != nil {
+				return observerstore.ErrSyntheticDisabled
+			}
 			return fmt.Errorf("%w: 支付通道已禁用", errChannelUnavailable)
 		}
 		if err := payment.CheckMethod(channel.Plugin, channel.AppType, method); err != nil {
+			if scope != nil {
+				return observerstore.ErrSyntheticDisabled
+			}
 			return fmt.Errorf("%w: %v", errChannelUnavailable, err)
 		}
 		merchant, err := s.merchantRepo.GetByIDForUpdate(tx, req.MerchantID)
@@ -145,7 +167,19 @@ func (s *OrderService) reserveOrder(ctx context.Context, req *CreateOrderRequest
 			return err
 		}
 		if count > 0 {
-			return errors.New("商户订单号已存在")
+			if scope != nil {
+				var existing model.Order
+				if err := tx.Where("merchant_id = ? AND out_trade_no = ?", req.MerchantID, req.OutTradeNo).First(&existing).Error; err != nil {
+					return err
+				}
+				if existing.ObserverPayExpiresAt != nil && existing.Amount.Equal(req.Amount) && existing.PayType == req.PayType &&
+					existing.PayMethod == method && existing.Name == req.Name && existing.NotifyURL == req.MerchantNotifyURL && existing.ReturnURL == req.ReturnURL &&
+					(req.ChannelID == 0 || existing.ChannelID == req.ChannelID) {
+					order = existing
+					return nil
+				}
+			}
+			return errors.New("商户订单号已存在或参数不一致")
 		}
 		if channel.DailyLimit.IsPositive() {
 			now := time.Now()
@@ -155,6 +189,9 @@ func (s *OrderService) reserveOrder(ctx context.Context, req *CreateOrderRequest
 				return err
 			}
 			if total.Add(req.Amount).GreaterThan(channel.DailyLimit) {
+				if scope != nil {
+					return observerstore.ErrAmountUnavailable
+				}
 				return fmt.Errorf("%w: 通道日限额不足", errChannelUnavailable)
 			}
 		}
@@ -170,7 +207,17 @@ func (s *OrderService) reserveOrder(ctx context.Context, req *CreateOrderRequest
 		if channel.CallbackURL != "" {
 			order.ProviderNotifyURL = channel.CallbackURL
 		}
-		return tx.Create(&order).Error
+		if scope != nil {
+			now := s.now().UTC().Truncate(time.Millisecond)
+			expires := now.Add(observerstore.PaymentWindow)
+			order.CreatedAt = now
+			order.ObserverPayExpiresAt = &expires
+			order.NextQueryAt = nil
+		}
+		if err := tx.Create(&order).Error; err != nil {
+			return err
+		}
+		return scope.Claim(tx, &order)
 	})
 	if err != nil {
 		return nil, err
@@ -184,6 +231,9 @@ func (s *OrderService) Checkout(ctx context.Context, no, payType string) (*Creat
 	err := database.Get().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		order, err := s.orderRepo.GetByTradeNoForUpdate(tx, no)
 		if err != nil {
+			return err
+		}
+		if err := observerstore.CheckOrderWindow(tx, order, s.now()); err != nil {
 			return err
 		}
 		if order.Status != model.OrderStatusUnpaid {
@@ -221,6 +271,10 @@ func (s *OrderService) Checkout(ctx context.Context, no, payType string) (*Creat
 			if err := json.Unmarshal([]byte(order.Extra), &extra); err != nil {
 				return err
 			}
+		}
+		if order.ObserverPayExpiresAt != nil {
+			// Provider selection is frozen on the order, never caller Extra.
+			extra = map[string]string{"pay_type": order.PayType}
 		}
 		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
@@ -284,6 +338,9 @@ func (s *OrderService) ProcessPayNotify(tradeNo, apiTradeNo, buyer string, amoun
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return errors.New("订单不存在")
 			}
+			return err
+		}
+		if err := observerstore.RejectLegacySettlement(tx, order); err != nil {
 			return err
 		}
 		if !order.Amount.Equal(amount) {

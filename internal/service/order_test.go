@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/example/epay-go/internal/database"
 	"github.com/example/epay-go/internal/model"
+	"github.com/example/epay-go/internal/observerstore"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/shopspring/decimal"
@@ -60,7 +62,10 @@ func paymentTestDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	database.DB = db
-	if err := db.AutoMigrate(&model.Merchant{}, &model.Channel{}, &model.Order{}, &model.BalanceRecord{}); err != nil {
+	if err := db.AutoMigrate(&model.Admin{}, &model.Merchant{}, &model.Channel{}, &model.Order{}, &model.BalanceRecord{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := observerstore.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	return db
