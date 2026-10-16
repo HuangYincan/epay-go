@@ -611,30 +611,7 @@ func TestMatchLockedPrefixDoesNotStarveIndependentReceiverAfterRestart(t *testin
 	for i := 0; i < 4; i++ {
 		f.receive(t, now, now, nil)
 	}
-	var actor int64
-	f.db.Raw(`SELECT id FROM admins WHERE username='pairing-test'`).Scan(&actor)
-	_, token, err := f.authority.CreateGrant(context.Background(), "fixture-receiver-ali", "replace", actor, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := request()
-	req.EnrollmentID = "22222222-1111-4111-8111-111111111111"
-	ali, err := f.authority.Redeem(context.Background(), token, req, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.authority.Activate(context.Background(), token, req, now); err != nil {
-		t.Fatal(err)
-	}
-	other := *f
-	other.enrollment = ali
-	other.channel = model.Channel{Name: "independent-ali", Plugin: "epay", Status: 1}
-	if err := f.db.Create(&other.channel).Error; err != nil {
-		t.Fatal(err)
-	}
-	exec(t, f.db, `INSERT INTO observer_channel_aliases VALUES (?,'test','fixture-receiver-ali','alipay')`, other.channel.ID)
-	other.order(t, "independent-ali", now)
-	id, _ := other.receive(t, now, now, nil)
+	id := f.receiveIndependentAlipay(t, now)
 	held := f.db.Begin()
 	if held.Error != nil {
 		t.Fatal(held.Error)
@@ -675,4 +652,100 @@ func TestMatchBareCreditedInsertCannotBypassAudit(t *testing.T) {
 		t.Fatal("invalid event committed")
 	}
 	f.assertIncome(t, 0)
+}
+
+func (f *matchFixture) receiveIndependentAlipay(t *testing.T, now int64) int64 {
+	t.Helper()
+	var actor int64
+	f.db.Raw(`SELECT id FROM admins WHERE username='pairing-test'`).Scan(&actor)
+	_, token, err := f.authority.CreateGrant(context.Background(), "fixture-receiver-ali", "replace", actor, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := request()
+	req.EnrollmentID = "22222222-1111-4111-8111-111111111111"
+	ali, err := f.authority.Redeem(context.Background(), token, req, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.authority.Activate(context.Background(), token, req, now); err != nil {
+		t.Fatal(err)
+	}
+	other := *f
+	other.enrollment = ali
+	other.channel = model.Channel{Name: "independent-ali", Plugin: "epay", Status: 1}
+	if err := f.db.Create(&other.channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	exec(t, f.db, `INSERT INTO observer_channel_aliases VALUES (?,'test','fixture-receiver-ali','alipay')`, other.channel.ID)
+	other.order(t, "independent-ali", now)
+	id, _ := other.receive(t, now, now, nil)
+	return id
+}
+
+func TestMatchLockedEventDoesNotStarveIndependentReceiver(t *testing.T) {
+	now := time.Now().UnixMilli()
+	f := newMatchFixture(t, "wxpay", now)
+	f.order(t, "event-locked-wx", now)
+	blocked, _ := f.receive(t, now, now, nil)
+	id := f.receiveIndependentAlipay(t, now)
+	held := f.db.Begin()
+	if held.Error != nil {
+		t.Fatal(held.Error)
+	}
+	defer held.Rollback()
+	if err := held.Exec(`SELECT 1 FROM observer_events WHERE id=? FOR UPDATE`, blocked).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.matcher.ProcessPending(context.Background(), 50); err != nil {
+		t.Fatal(err)
+	}
+	var outcome string
+	f.db.Raw(`SELECT outcome FROM observer_match_decisions WHERE event_pk=?`, id).Scan(&outcome)
+	if outcome != "matched" {
+		t.Fatal("independent receiver starved behind locked event")
+	}
+	f.assertIncome(t, 1)
+}
+
+func TestMatchRetryCoordinationFailureStillProcessesNextReceiver(t *testing.T) {
+	now := time.Now().UnixMilli()
+	f := newMatchFixture(t, "wxpay", now)
+	f.order(t, "late-event-lock", now)
+	blocked, _ := f.receive(t, now, now, nil)
+	id := f.receiveIndependentAlipay(t, now)
+	held := f.db.Begin()
+	if held.Error != nil {
+		t.Fatal(held.Error)
+	}
+	defer held.Rollback()
+	var once sync.Once
+	locked := false
+	callback := "test:lock_event_after_candidate_scan"
+	if err := f.db.Callback().Row().After("gorm:row").Register(callback, func(tx *gorm.DB) {
+		query := tx.Statement.SQL.String()
+		if strings.Contains(query, "SELECT * FROM observer_events WHERE id=") && !strings.Contains(query, "FOR UPDATE") {
+			once.Do(func() {
+				if err := held.Exec(`SELECT 1 FROM observer_events WHERE id=? FOR UPDATE`, blocked).Error; err != nil {
+					t.Fatal(err)
+				}
+				locked = true
+			})
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer f.db.Callback().Row().Remove(callback)
+	if err := f.matcher.ProcessPending(context.Background(), 50); err == nil || !locked {
+		t.Fatal("late event lock did not exercise coordination failure")
+	}
+	var outcome string
+	f.db.Raw(`SELECT outcome FROM observer_match_decisions WHERE event_pk=?`, id).Scan(&outcome)
+	if outcome != "matched" {
+		t.Fatal("retry coordination failure truncated unrelated event")
+	}
+	if count(t, f.db, "observer_match_retries") != 0 {
+		t.Fatal("unexpected retry persisted through held event lock")
+	}
+	f.assertIncome(t, 1)
 }

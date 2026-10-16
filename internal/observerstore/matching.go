@@ -255,11 +255,17 @@ func (m *Matcher) ProcessPending(ctx context.Context, limit int) error {
 	batch, cancelBatch := context.WithTimeout(ctx, 20*time.Second)
 	defer cancelBatch()
 	var ids []int64
-	if err := m.db.WithContext(batch).Raw(`SELECT e.id FROM observer_events e LEFT JOIN observer_match_retries r ON r.event_pk=e.id
-        WHERE e.environment=? AND e.processing_status='pending' AND (r.next_attempt_at_ms IS NULL OR r.next_attempt_at_ms<=?)
-        ORDER BY coalesce(r.next_attempt_at_ms,e.first_received_at_ms),e.id LIMIT ?`, m.environment, time.Now().UnixMilli(), limit).Scan(&ids).Error; err != nil {
+	// Briefly skip already locked event rows, then release before taking the
+	// canonical receiver -> event transaction locks. No reverse lock dependency.
+	if err := m.db.WithContext(batch).Transaction(func(tx *gorm.DB) error {
+		return tx.Raw(`SELECT e.id FROM observer_events e LEFT JOIN observer_match_retries r ON r.event_pk=e.id
+          WHERE e.environment=? AND e.processing_status='pending' AND (r.next_attempt_at_ms IS NULL OR r.next_attempt_at_ms<=?)
+          ORDER BY coalesce(r.next_attempt_at_ms,e.first_received_at_ms),e.id LIMIT ? FOR UPDATE OF e SKIP LOCKED`,
+			m.environment, time.Now().UnixMilli(), limit).Scan(&ids).Error
+	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted}); err != nil {
 		return err
 	}
+
 	var firstError error
 	for _, id := range ids {
 		if err := batch.Err(); err != nil {
@@ -278,7 +284,9 @@ func (m *Matcher) ProcessPending(ctx context.Context, limit int) error {
 				firstError = err
 			}
 			if retryErr != nil {
-				return retryErr
+				// An event locked after the scan must not truncate unrelated work.
+				// The next scan also skips rows whose lock remains held.
+				firstError = retryErr
 			}
 		}
 	}
