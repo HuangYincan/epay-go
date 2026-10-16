@@ -112,7 +112,7 @@ func TestPairingActualTLSAndStrictHTTP(t *testing.T) {
 	r.TLS = nil
 	r.Header.Set("X-Forwarded-Proto", "https")
 	w := httptest.NewRecorder()
-	observerhttp.NewPairingHandler(svc).ServeHTTP(w, r)
+	observerhttp.NewHandler(svc).ServeHTTP(w, r)
 	if w.Code != 403 {
 		t.Fatal("forwarded TLS spoof accepted")
 	}

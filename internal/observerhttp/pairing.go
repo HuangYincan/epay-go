@@ -16,7 +16,7 @@ import (
 	"github.com/example/epay-go/pkg/observer"
 )
 
-type PairingHandler struct {
+type Handler struct {
 	service *observerstore.PairingService
 	clock   func() time.Time
 	slots   chan struct{}
@@ -26,9 +26,9 @@ type PairingHandler struct {
 	host    string
 }
 
-func NewPairingHandler(service *observerstore.PairingService) *PairingHandler {
+func NewHandler(service *observerstore.PairingService) *Handler {
 	origin, _ := url.Parse(service.Origin())
-	return &PairingHandler{service: service, clock: time.Now, slots: make(chan struct{}, 16), tokens: 20, last: time.Now(), host: origin.Host}
+	return &Handler{service: service, clock: time.Now, slots: make(chan struct{}, 16), tokens: 20, last: time.Now(), host: origin.Host}
 }
 func single(h http.Header, name string) (string, bool) {
 	value := ""
@@ -72,7 +72,7 @@ func serviceError(w http.ResponseWriter, err error) {
 		failure(w, 503, "unavailable")
 	}
 }
-func (h *PairingHandler) take(now time.Time) bool {
+func (h *Handler) take(now time.Time) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delta := now.Sub(h.last).Seconds()
@@ -92,7 +92,7 @@ func (h *PairingHandler) take(now time.Time) bool {
 
 // Guard is also applied before administrator JWT parsing on the dedicated TLS
 // listener. Forwarded headers never establish secure transport or the origin.
-func (h *PairingHandler) Guard(w http.ResponseWriter, r *http.Request) bool {
+func (h *Handler) Guard(w http.ResponseWriter, r *http.Request) bool {
 	if r.TLS == nil || r.Host != h.host {
 		failure(w, 403, "scope_denied")
 		return false
@@ -104,7 +104,7 @@ func (h *PairingHandler) Guard(w http.ResponseWriter, r *http.Request) bool {
 	}
 	return true
 }
-func readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+func readBody(w http.ResponseWriter, r *http.Request, limit int) ([]byte, bool) {
 	contentType, ok := single(r.Header, "Content-Type")
 	kind, params, err := mime.ParseMediaType(contentType)
 	if !ok || err != nil || kind != "application/json" || len(params) > 1 || len(params) == 1 && !strings.EqualFold(params["charset"], "utf-8") {
@@ -117,8 +117,8 @@ func readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 			return nil, false
 		}
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, observer.PairingMaxBody+1))
-	if len(body) > observer.PairingMaxBody {
+	body, err := io.ReadAll(io.LimitReader(r.Body, int64(limit)+1))
+	if len(body) > limit {
 		failure(w, 413, "body_too_large")
 		return nil, false
 	}
@@ -131,7 +131,7 @@ func readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 func exactRoute(r *http.Request, path string) bool {
 	return r.Method == http.MethodPost && r.URL.Path == path && r.URL.RawPath == "" && r.URL.RawQuery == "" && !r.URL.ForceQuery && r.URL.Fragment == "" && (r.RequestURI == "" || r.RequestURI == path)
 }
-func (h *PairingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !h.Guard(w, r) {
 		return
 	}
@@ -154,7 +154,7 @@ func (h *PairingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, 401, "invalid_grant")
 		return
 	}
-	body, ok := readBody(w, r)
+	body, ok := readBody(w, r, observer.PairingMaxBody)
 	if !ok {
 		return
 	}
@@ -192,12 +192,12 @@ func (h *PairingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ServeAdmin is called only after the ordinary administrator JWT middleware.
 // Actor is never accepted from a JSON body or header controlled by the device.
-func (h *PairingHandler) ServeAdmin(w http.ResponseWriter, r *http.Request, actor int64) {
+func (h *Handler) ServeAdmin(w http.ResponseWriter, r *http.Request, actor int64) {
 	if actor <= 0 {
 		failure(w, 403, "scope_denied")
 		return
 	}
-	body, ok := readBody(w, r)
+	body, ok := readBody(w, r, observer.PairingMaxBody)
 	if !ok {
 		return
 	}
