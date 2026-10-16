@@ -30,7 +30,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-func testDB(t *testing.T) *gorm.DB {
+func testDB(t *testing.T, isolation ...string) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv("EPAY_TEST_DATABASE_DSN")
 	if dsn == "" {
@@ -50,6 +50,9 @@ func testDB(t *testing.T) *gorm.DB {
 	}
 	cfg.RuntimeParams["search_path"] = schema
 	cfg.RuntimeParams["statement_timeout"] = "10000"
+	if len(isolation) != 0 {
+		cfg.RuntimeParams["default_transaction_isolation"] = isolation[0]
+	}
 	var pool *sql.DB = stdlib.OpenDB(*cfg)
 	pool.SetMaxOpenConns(20)
 	t.Cleanup(func() { pool.Close(); admin.Exec("DROP SCHEMA " + schema + " CASCADE"); admin.Close() })
@@ -392,5 +395,36 @@ func TestEvidenceDatabaseBoundsAndFirstEnvelopeProvenance(t *testing.T) {
 	db.Raw(`SELECT provider_transaction_id FROM observer_events WHERE event_id='22222222-2222-4222-8222-222222222222'`).Scan(&txID)
 	if txID != "synthetic-provider-reference" || count(t, db, "observer_events") != 2 {
 		t.Fatal("optional provider evidence corrupted")
+	}
+}
+
+func TestExplicitIsolationAndOuterTransactionRollback(t *testing.T) {
+	db := testDB(t, "repeatable read")
+	seed(t, db)
+	v := verified(t, nil)
+	outerFailure := errors.New("synthetic outer rollback")
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if _, err := observerstore.RecordEvidence(context.Background(), tx, "test", "fixture-key-a", v, 1792022400000); err != nil {
+			return err
+		}
+		return outerFailure
+	})
+	if !errors.Is(err, outerFailure) || count(t, db, "observer_events") != 0 {
+		t.Fatal("nested evidence escaped the future receiving transaction")
+	}
+	results := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		go func() {
+			_, err := observerstore.RecordEvidence(context.Background(), db, "test", "fixture-key-a", v, 1792022400000)
+			results <- err
+		}()
+	}
+	for i := 0; i < 8; i++ {
+		if err := <-results; err != nil {
+			t.Fatal("storage must choose read committed independently of database default", err)
+		}
+	}
+	if count(t, db, "observer_events") != 1 {
+		t.Fatal("isolation change broke event uniqueness")
 	}
 }

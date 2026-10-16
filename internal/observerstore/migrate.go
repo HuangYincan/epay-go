@@ -5,6 +5,7 @@ package observerstore
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	_ "embed"
 	"encoding/hex"
 	"errors"
@@ -49,7 +50,7 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 			return err
 		}
 		return tx.Exec(`INSERT INTO observer_schema_versions(version, checksum) VALUES (1, ?)`, checksum).Error
-	})
+	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if errors.Is(err, ErrSchema) {
 		return ErrSchema
 	}

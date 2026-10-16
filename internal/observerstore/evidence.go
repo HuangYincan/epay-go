@@ -3,6 +3,7 @@ package observerstore
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 
 	"github.com/example/epay-go/pkg/observer"
@@ -75,7 +76,7 @@ func RecordEvidence(ctx context.Context, db *gorm.DB, environment, keyID string,
 			result.Disposition = "stored"
 		}
 		return nil
-	})
+	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		if err == ErrScope {
 			return EvidenceResult{}, ErrScope
