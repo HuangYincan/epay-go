@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-16",
+  "scope": "isolated synthetic callback transport and New API amount patch; no AVD recharge result yet",
+  "new_api": {
+    "base": "633b4c5b190dc1af99a2814391354d86948e7943",
+    "patch_commit": "42c3424d3ce3b82d71668dba2b84f58315d7d078",
+    "patch_sha256": "9eed8453a796e4f2233b22bdd8f6ec9827eb5f2b32a41ace679254a5a94a65ff",
+    "model_amount_test_items": 51,
+    "http_matrix_test_items_per_database": 14,
+    "databases": {
+      "sqlite": "3.50.4",
+      "postgresql": "16.15",
+      "mysql": "8.4.11"
+    },
+    "model_controller_full_race": "passed",
+    "model_controller_vet": "passed",
+    "upstream_push": false
+  },
+  "gateway": {
+    "base": "ccbaf7059710b6a38464c78c4a50e199ccd0462f",
+    "implementation": "f8ca3c2",
+    "default_race_items": 209,
+    "synthetic_race_items": 315,
+    "failures": 0,
+    "skips": 0,
+    "vet_both_builds": "passed",
+    "tls_positive_negative": "passed",
+    "dns_lock_regression": "passed",
+    "matched_retry_both_providers": "passed"
+  },
+  "pending": [
+    "actual AVD to New API balance chain",
+    "callback process crash/lost response/key rotation integration",
+    "clean-data full reproduction"
+  ]
+}
