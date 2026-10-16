@@ -15,6 +15,7 @@ import (
 	"github.com/example/epay-go/internal/config"
 	"github.com/example/epay-go/internal/database"
 	"github.com/example/epay-go/internal/middleware"
+	"github.com/example/epay-go/internal/observerstore"
 	"github.com/example/epay-go/internal/router"
 	"github.com/example/epay-go/internal/service"
 	"github.com/gin-gonic/gin"
@@ -96,6 +97,13 @@ func main() {
 
 	notifyService := service.NewNotifyService()
 	go notifyService.StartNotifyWorker(ctx)
+	if environment := observerstore.SyntheticEnvironment(); environment != "" {
+		matcher, err := observerstore.NewMatcher(database.Get(), environment)
+		if err != nil {
+			log.Fatal("observer synthetic matching configuration rejected")
+		}
+		go matcher.Run(ctx)
+	}
 
 	// 启动订单主动查单补偿工作协程
 	orderQueryService := service.NewOrderQueryService()
