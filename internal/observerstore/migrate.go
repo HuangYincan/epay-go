@@ -17,6 +17,9 @@ import (
 //go:embed 001_identity.sql
 var schemaOne string
 
+//go:embed 002_pairing.sql
+var schemaTwo string
+
 var ErrStorage = errors.New("observer_storage")
 var ErrSchema = errors.New("observer_schema_mismatch")
 var ErrScope = errors.New("observer_scope_mismatch")
@@ -38,18 +41,27 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		if err := tx.Raw(`SELECT version, checksum FROM observer_schema_versions ORDER BY version`).Scan(&versions).Error; err != nil {
 			return err
 		}
-		digest := sha256.Sum256([]byte(schemaOne))
-		checksum := hex.EncodeToString(digest[:])
-		if len(versions) != 0 {
-			if len(versions) != 1 || versions[0].Version != 1 || versions[0].Checksum != checksum {
-				return ErrSchema
+		schemas := []string{schemaOne, schemaTwo}
+		if len(versions) > len(schemas) {
+			return ErrSchema
+		}
+		for i, script := range schemas {
+			digest := sha256.Sum256([]byte(script))
+			checksum := hex.EncodeToString(digest[:])
+			if i < len(versions) {
+				if versions[i].Version != i+1 || versions[i].Checksum != checksum {
+					return ErrSchema
+				}
+				continue
 			}
-			return nil
+			if err := tx.Exec(script).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`INSERT INTO observer_schema_versions(version, checksum) VALUES (?, ?)`, i+1, checksum).Error; err != nil {
+				return err
+			}
 		}
-		if err := tx.Exec(schemaOne).Error; err != nil {
-			return err
-		}
-		return tx.Exec(`INSERT INTO observer_schema_versions(version, checksum) VALUES (1, ?)`, checksum).Error
+		return nil
 	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if errors.Is(err, ErrSchema) {
 		return ErrSchema

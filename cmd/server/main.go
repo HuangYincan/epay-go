@@ -78,6 +78,18 @@ func main() {
 	// 注册所有路由
 	router.Setup(r)
 
+	observer, observerListener, err := observerServer()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if observer != nil {
+		go func() {
+			if err := observer.Serve(observerListener); err != nil && err != http.ErrServerClosed {
+				log.Fatal("observer TLS listener stopped unexpectedly")
+			}
+		}()
+	}
+
 	// 启动异步通知工作协程
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -122,6 +134,11 @@ func main() {
 	// 优雅关闭 HTTP 服务器（最多等待 5 秒）
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
+	if observer != nil {
+		if err := observer.Shutdown(shutdownCtx); err != nil {
+			log.Print("observer TLS shutdown incomplete")
+		}
+	}
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
