@@ -234,9 +234,16 @@ func TestReceivePersistentDeviceBudgetAndClockRollback(t *testing.T) {
 		}
 	}
 	receiver = observerstore.NewReceiver(pairingService(t, db))
-	for _, now := range []int64{pairingNow + 1000, pairingNow + 999} {
+	for _, test := range []struct {
+		now  int64
+		wait int
+	}{
+		{pairingNow + 1000, 1}, {pairingNow + 999, 2},
+		{pairingNow + 1500, 1},
+	} {
+		now := test.now
 		got := receiver.Receive(ctx, receiveRequest(t, enrollment, body, reqID(21), now), body, now)
-		if got.Status != 429 || got.RetryAfterSeconds != 1 {
+		if got.Status != 429 || got.RetryAfterSeconds != test.wait {
 			t.Fatal("budget reset or clock rollback added tokens", got)
 		}
 	}
@@ -245,6 +252,12 @@ func TestReceivePersistentDeviceBudgetAndClockRollback(t *testing.T) {
 	}
 	if got := receiver.Receive(ctx, receiveRequest(t, enrollment, body, reqID(22), pairingNow+2000), body, pairingNow+2000); got.Status != 200 {
 		t.Fatal("budget did not refill", got)
+	}
+	// Keep the request within its credential lifetime while simulating a persisted
+	// budget last touched by a clock sixty seconds ahead of this process.
+	exec(t, db, `UPDATE observer_device_budgets SET tokens_milli=0,last_refill_ms=?`, pairingNow+62000)
+	if got := receiver.Receive(ctx, receiveRequest(t, enrollment, body, reqID(23), pairingNow+2000), body, pairingNow+2000); got.Status != 429 || got.RetryAfterSeconds != 61 {
+		t.Fatal("rollback wait omitted future refill origin", got)
 	}
 }
 

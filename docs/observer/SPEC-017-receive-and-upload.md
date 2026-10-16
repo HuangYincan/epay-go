@@ -18,7 +18,7 @@
 
 从Room领取lease，按该scope获取当前非秘密credential与KeyStore句柄；缺密钥、过期、非当前绑定不发送。每次尝试调用RequestSigner生成新的request_id/sent_at，body始终是队列原字节。HttpsURLConnection正常系统/显式测试域CA校验，禁止redirect、压缩、跨origin与不受限响应。
 
-严格解析ACK字段集合：schema_version/event_id/receipt_status/processing_status/received_at_ms，拒绝重复/未知/null/浮点/尾随内容；只有202 accepted或200 duplicate且event_id吻合才调用OutboxStore.acknowledge。网络/5xx/非ACK 2xx按RetryPolicy原事件重试；429尊重Retry-After。400/413/415按已知协议错误终止该事件，未知错误保守重试。401/403暂停对应授权发送并保留证据；409隔离冲突。所有结果均带lease token，晚到结果不能改写新租约/已经暂停的事件。
+严格解析ACK字段集合：schema_version/event_id/receipt_status/processing_status/received_at_ms，拒绝重复/未知/null/浮点/尾随内容；只有202 accepted或200 duplicate且event_id吻合才调用OutboxStore.acknowledge。网络/5xx/非ACK 2xx按RetryPolicy原事件重试；429尊重Retry-After。400/413/415按已知协议错误终止该事件，未知错误保守重试。401/403暂停对应授权发送并保留证据；409隔离冲突。所有结果均带lease token，晚到结果不能改写新租约/已经暂停的事件。当前credential、capture epoch及upload epoch的检查与lease领取必须同事务；授权暂停须在同一事务中验证lease并暂停scope。显式修复更新独立upload epoch并释放该scope旧租约，拒绝修复前的响应或缺密钥检查重新暂停授权；不能改变采集epoch或补绑历史UNBOUND。
 
 先实现可显式触发的真实投递循环与恢复验证；WorkManager和重启调度由#23接入同一个可测试的投递入口，不另建内存队列。界面将ACK与充值状态明确区分；此批不匹配订单、不更新余额。
 

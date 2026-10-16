@@ -223,7 +223,10 @@ func chargeDevice(tx *gorm.DB, environment, device string, now int64) (int, erro
 	if budget.TokensMilli >= 1000 {
 		budget.TokensMilli -= 1000
 	} else {
-		retry = 1
+		// A backward clock cannot refill, and its future refill origin must
+		// be included before the token deficit can start recovering.
+		waitMs := max(int64(0), budget.LastRefillMs-now) + 1000 - budget.TokensMilli
+		retry = int((waitMs + 999) / 1000)
 	}
 	err := tx.Exec(`UPDATE observer_device_budgets SET tokens_milli=?,last_refill_ms=? WHERE environment=? AND device_id=?`, budget.TokensMilli, budget.LastRefillMs, environment, device).Error
 	return retry, err
