@@ -32,6 +32,7 @@ func Router(service *observerstore.PairingService) *gin.Engine {
 	})
 	r.POST("/api/observer/v1/pairing/:operation", gin.WrapH(h))
 	r.POST(observer.Path, func(c *gin.Context) { h.Events(c.Writer, c.Request) })
+	r.POST(observer.HealthPath, func(c *gin.Context) { h.Health(c.Writer, c.Request) })
 	adminRoutes := r.Group("/api/admin")
 	adminRoutes.Use(func(c *gin.Context) {
 		if !h.Guard(c.Writer, c.Request) {

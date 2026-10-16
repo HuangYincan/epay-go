@@ -18,6 +18,7 @@ type ReceiveResult struct {
 	Code              string
 	RetryAfterSeconds int
 	Receipt           *observer.Receipt
+	Health            *observer.HealthResponse
 }
 
 func rejectedRequest(status int, code string) ReceiveResult {
@@ -32,6 +33,68 @@ func NewReceiver(authority *PairingService) *Receiver { return &Receiver{authori
 // TLS and body-size admission also belong to the HTTP boundary. This transaction
 // serializes with pairing/revocation on the stable receiver, never on an order.
 func (receiver *Receiver) Receive(ctx context.Context, r *http.Request, body []byte, now int64) ReceiveResult {
+	return receiver.withCredential(ctx, r, now, func(tx *gorm.DB, credential credentialRow, key []byte) (ReceiveResult, error) {
+		result := rejectedRequest(503, "unavailable")
+		verified, err := observer.VerifyRequest(r, body, credential.KeyID, key, now)
+		clear(key)
+		if err != nil {
+			result = verificationFailure(err.Error())
+			return result, nil
+		}
+		event := verified.Event
+		if event.DeviceID != credential.DeviceID || event.ReceiverID != credential.ReceiverID || event.BindingVersion != int64(credential.BindingVersion) || event.Provider != credential.Provider || event.SourceClass != credential.SourceClass {
+			result = rejectedRequest(403, "scope_denied")
+			return result, nil
+		}
+		retry, err := chargeDevice(tx, credential.Environment, credential.DeviceID, now)
+		if err != nil {
+			return result, err
+		}
+		if retry > 0 {
+			result = rejectedRequest(429, "rate_limited")
+			result.RetryAfterSeconds = retry
+			return result, nil
+		}
+		digest := sha256.Sum256([]byte(strings.Join([]string{"epay-observer-request-v1", credential.KeyID, strconv.FormatInt(verified.SentAt, 10), verified.RequestID, verified.BodySHA256}, "\n")))
+		envelope := hex.EncodeToString(digest[:])
+		var request struct {
+			EnvelopeSHA256 string
+			EventPK        int64
+			Disposition    string
+		}
+		row := tx.Raw(`SELECT envelope_sha256,event_pk,disposition FROM observer_requests WHERE key_id=? AND request_id=?`, credential.KeyID, verified.RequestID).Scan(&request)
+		if row.Error != nil {
+			return result, row.Error
+		}
+		if row.RowsAffected == 1 {
+			if request.EnvelopeSHA256 != envelope {
+				result = rejectedRequest(409, "request_conflict")
+				return result, nil
+			}
+			if request.Disposition == "conflict" {
+				result = rejectedRequest(409, "event_conflict")
+				return result, nil
+			}
+			result, err = storedReceipt(tx, request.EventPK, false)
+			return result, err
+		}
+		evidence, err := RecordEvidence(ctx, tx, credential.Environment, credential.KeyID, verified, now)
+		if err != nil {
+			return result, err
+		}
+		if err := tx.Exec(`INSERT INTO observer_requests(key_id,request_id,envelope_sha256,event_pk,disposition,first_seen_at_ms) VALUES (?,?,?,?,?,?)`, credential.KeyID, verified.RequestID, envelope, evidence.EventPK, evidence.Disposition, now).Error; err != nil {
+			return result, err
+		}
+		if evidence.Disposition == "conflict" {
+			result = rejectedRequest(409, "event_conflict")
+			return result, nil
+		}
+		result, err = storedReceipt(tx, evidence.EventPK, evidence.Disposition == "stored")
+		return result, err
+	})
+}
+
+func (receiver *Receiver) withCredential(ctx context.Context, r *http.Request, now int64, action func(*gorm.DB, credentialRow, []byte) (ReceiveResult, error)) ReceiveResult {
 	p := receiver.authority
 	if p == nil || now < 0 || now > observer.MaxTime {
 		return rejectedRequest(503, "unavailable")
@@ -119,61 +182,8 @@ func (receiver *Receiver) Receive(ctx context.Context, r *http.Request, body []b
 		if err != nil {
 			return err
 		}
-		verified, err := observer.VerifyRequest(r, body, keyID, key, now)
-		clear(key)
-		if err != nil {
-			result = verificationFailure(err.Error())
-			return nil
-		}
-		event := verified.Event
-		if event.DeviceID != credential.DeviceID || event.ReceiverID != credential.ReceiverID || event.BindingVersion != int64(credential.BindingVersion) || event.Provider != credential.Provider || event.SourceClass != credential.SourceClass {
-			result = rejectedRequest(403, "scope_denied")
-			return nil
-		}
-		retry, err := chargeDevice(tx, credential.Environment, credential.DeviceID, now)
-		if err != nil {
-			return err
-		}
-		if retry > 0 {
-			result = rejectedRequest(429, "rate_limited")
-			result.RetryAfterSeconds = retry
-			return nil
-		}
-		digest := sha256.Sum256([]byte(strings.Join([]string{"epay-observer-request-v1", keyID, strconv.FormatInt(verified.SentAt, 10), verified.RequestID, verified.BodySHA256}, "\n")))
-		envelope := hex.EncodeToString(digest[:])
-		var request struct {
-			EnvelopeSHA256 string
-			EventPK        int64
-			Disposition    string
-		}
-		row = tx.Raw(`SELECT envelope_sha256,event_pk,disposition FROM observer_requests WHERE key_id=? AND request_id=?`, keyID, verified.RequestID).Scan(&request)
-		if row.Error != nil {
-			return row.Error
-		}
-		if row.RowsAffected == 1 {
-			if request.EnvelopeSHA256 != envelope {
-				result = rejectedRequest(409, "request_conflict")
-				return nil
-			}
-			if request.Disposition == "conflict" {
-				result = rejectedRequest(409, "event_conflict")
-				return nil
-			}
-			result, err = storedReceipt(tx, request.EventPK, false)
-			return err
-		}
-		evidence, err := RecordEvidence(ctx, tx, p.environment, keyID, verified, now)
-		if err != nil {
-			return err
-		}
-		if err := tx.Exec(`INSERT INTO observer_requests(key_id,request_id,envelope_sha256,event_pk,disposition,first_seen_at_ms) VALUES (?,?,?,?,?,?)`, keyID, verified.RequestID, envelope, evidence.EventPK, evidence.Disposition, now).Error; err != nil {
-			return err
-		}
-		if evidence.Disposition == "conflict" {
-			result = rejectedRequest(409, "event_conflict")
-			return nil
-		}
-		result, err = storedReceipt(tx, evidence.EventPK, evidence.Disposition == "stored")
+		defer clear(key)
+		result, err = action(tx, credential, key)
 		return err
 	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {

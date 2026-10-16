@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "key_id": "health-fixture-key",
+  "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "sent_at_ms": 1792022400000,
+  "request_id": "77777777-7777-4777-8777-777777777777",
+  "body_utf8": "{\"schema_version\":1}",
+  "path": "/api/observer/v1/health",
+  "body_sha256": "a9d5f6d002d956b8af5787a05e0ca000d45c03977ffa54ee8fbed719fed5fd23",
+  "canonical_utf8": "epay-observer-health-v1\nPOST\n/api/observer/v1/health\nhealth-fixture-key\n1792022400000\n77777777-7777-4777-8777-777777777777\na9d5f6d002d956b8af5787a05e0ca000d45c03977ffa54ee8fbed719fed5fd23",
+  "signature_hex": "f8b91630d3b749c4d2d3321f2d687c33072be11da0923d0a2959599c3bc7b79c"
+}
