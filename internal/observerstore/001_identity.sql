@@ -141,7 +141,7 @@ BEGIN
             IF NOT OLD.active AND NEW.active THEN RAISE EXCEPTION 'observer_binding_reactivation'; END IF;
         WHEN 'observer_credentials' THEN
             allowed := ARRAY['state', 'expires_at_ms', 'revoked_at_ms'];
-            IF NEW.expires_at_ms > OLD.expires_at_ms OR (OLD.state = 'revoked' AND NEW.state <> 'revoked') OR (OLD.state = 'active' AND NEW.state = 'pending') THEN RAISE EXCEPTION 'observer_credential_reactivation'; END IF;
+            IF NEW.expires_at_ms > OLD.expires_at_ms OR (OLD.state = 'revoked' AND (NEW.state <> 'revoked' OR NEW.revoked_at_ms IS DISTINCT FROM OLD.revoked_at_ms)) OR (OLD.state = 'active' AND NEW.state = 'pending') THEN RAISE EXCEPTION 'observer_credential_reactivation'; END IF;
         WHEN 'observer_events' THEN allowed := ARRAY['processing_status'];
         ELSE allowed := ARRAY[]::text[];
     END CASE;

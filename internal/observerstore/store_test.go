@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/epay-go/internal/model"
 	"github.com/example/epay-go/internal/database"
+	"github.com/example/epay-go/internal/model"
 	"github.com/example/epay-go/internal/observerstore"
 	"github.com/example/epay-go/pkg/observer"
 	"github.com/jackc/pgx/v5"
@@ -148,10 +148,9 @@ func TestMigrationPreservesLegacyDataAndRunsConcurrently(t *testing.T) {
 		t.Fatal(err)
 	}
 	previous := database.DB
-    database.DB = db
-    t.Cleanup(func() { database.DB = previous })
-    if err := database.Migrate(); err != nil { t.Fatal(err) }
-    results := make(chan error, 4)
+	database.DB = db
+	t.Cleanup(func() { database.DB = previous })
+	results := make(chan error, 4)
 	for i := 0; i < 4; i++ {
 		go func() { results <- observerstore.Migrate(context.Background(), db) }()
 	}
@@ -159,6 +158,9 @@ func TestMigrationPreservesLegacyDataAndRunsConcurrently(t *testing.T) {
 		if err := <-results; err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := database.Migrate(); err != nil {
+		t.Fatal(err)
 	}
 	if count(t, db, "observer_schema_versions") != 1 || count(t, db, "observer_events") != 0 {
 		t.Fatal("migration did not remain additive")
@@ -230,9 +232,9 @@ func TestIdentityScopeHistoryAndActiveUniqueness(t *testing.T) {
 func TestCredentialMetadataCannotBeReboundOrContainPlainKey(t *testing.T) {
 	db := testDB(t)
 	seed(t, db)
-	rejected(t, db, `INSERT INTO observer_credentials(key_id,environment,receiver_id,binding_version,device_id,provider,source_class,encryption_key_id,key_ciphertext,not_before_ms,expires_at_ms) VALUES ('plain-key','test','fixture-receiver-wx',1,'fixture-device-a','wxpay','synthetic','test-kek',?,0,9007199254740991)`, make([]byte,32))
-    rejected(t, db, `INSERT INTO observer_credentials(key_id,environment,receiver_id,binding_version,device_id,provider,source_class,encryption_key_id,key_ciphertext,not_before_ms,expires_at_ms) VALUES ('wrong-source','test','fixture-receiver-wx',1,'fixture-device-a','wxpay','notification','test-kek',?,0,9007199254740991)`, make([]byte,60))
-    rejected(t, db, `UPDATE observer_credentials SET receiver_id='fixture-receiver-ali'`)
+	rejected(t, db, `INSERT INTO observer_credentials(key_id,environment,receiver_id,binding_version,device_id,provider,source_class,encryption_key_id,key_ciphertext,not_before_ms,expires_at_ms) VALUES ('plain-key','test','fixture-receiver-wx',1,'fixture-device-a','wxpay','synthetic','test-kek',?,0,9007199254740991)`, make([]byte, 32))
+	rejected(t, db, `INSERT INTO observer_credentials(key_id,environment,receiver_id,binding_version,device_id,provider,source_class,encryption_key_id,key_ciphertext,not_before_ms,expires_at_ms) VALUES ('wrong-source','test','fixture-receiver-wx',1,'fixture-device-a','wxpay','notification','test-kek',?,0,9007199254740991)`, make([]byte, 60))
+	rejected(t, db, `UPDATE observer_credentials SET receiver_id='fixture-receiver-ali'`)
 	rejected(t, db, `UPDATE observer_credentials SET key_ciphertext=?`, make([]byte, 32))
 	rejected(t, db, `UPDATE observer_credentials SET encryption_key_id='other-kek'`)
 	exec(t, db, `UPDATE observer_credentials SET state='active'`)
@@ -240,6 +242,7 @@ func TestCredentialMetadataCannotBeReboundOrContainPlainKey(t *testing.T) {
 	rejected(t, db, `UPDATE observer_credentials SET expires_at_ms=3000`)
 	exec(t, db, `UPDATE observer_credentials SET state='revoked',revoked_at_ms=1000`)
 	rejected(t, db, `UPDATE observer_credentials SET state='active',revoked_at_ms=NULL`)
+	rejected(t, db, `UPDATE observer_credentials SET revoked_at_ms=2000`)
 	rejected(t, db, `DELETE FROM observer_credentials`)
 }
 func TestConcurrentEvidenceDuplicatesAndConflictPreserveOriginal(t *testing.T) {
@@ -281,9 +284,13 @@ func TestConcurrentEvidenceDuplicatesAndConflictPreserveOriginal(t *testing.T) {
 		t.Fatal("concurrent duplicate created extra event")
 	}
 	fresh := verified(t, nil)
-    if fresh.RequestID == v.RequestID { t.Fatal("test request must be fresh") }
-    if r, err := observerstore.RecordEvidence(context.Background(), db, "test", "fixture-key-a", fresh, 1792022402000); err != nil || r.Disposition != "duplicate" { t.Fatal("new envelope changed event identity", err) }
-    changed := verified(t, func(s string) string { return strings.Replace(s, `"amount_minor":1001`, `"amount_minor":1002`, 1) })
+	if fresh.RequestID == v.RequestID {
+		t.Fatal("test request must be fresh")
+	}
+	if r, err := observerstore.RecordEvidence(context.Background(), db, "test", "fixture-key-a", fresh, 1792022402000); err != nil || r.Disposition != "duplicate" {
+		t.Fatal("new envelope changed event identity", err)
+	}
+	changed := verified(t, func(s string) string { return strings.Replace(s, `"amount_minor":1001`, `"amount_minor":1002`, 1) })
 	for i := 0; i < 2; i++ {
 		r, err := observerstore.RecordEvidence(context.Background(), db, "test", "fixture-key-a", changed, 1792022401000)
 		if err != nil || r.Disposition != "conflict" || r.EventPK != id {
@@ -347,7 +354,10 @@ func TestEvidenceDatabaseBoundsAndFirstEnvelopeProvenance(t *testing.T) {
 	if _, err := observerstore.RecordEvidence(context.Background(), db, "test", "fixture-key-a", v, 1792022400000); err != nil {
 		t.Fatal(err)
 	}
-	var first struct { FirstKeyID string; FirstRequestID string }
+	var first struct {
+		FirstKeyID     string
+		FirstRequestID string
+	}
 	db.Raw(`SELECT first_key_id, first_request_id FROM observer_events`).Scan(&first)
 	if first.FirstKeyID != "fixture-key-a" || first.FirstRequestID != v.RequestID {
 		t.Fatal("first envelope provenance missing")
@@ -358,21 +368,29 @@ func TestEvidenceDatabaseBoundsAndFirstEnvelopeProvenance(t *testing.T) {
 		"amount_minor": "0", "observed_at_ms": "9007199254740992", "currency": "'USD'",
 		"body_sha256": "repeat('0',64)", "body": "decode(repeat('00',16385),'hex')",
 		"provider_transaction_id": "'22222222-2222-4222-8222-222222222222'",
-		"first_request_id": "'bad-request'", "binding_version": "99",
+		"first_request_id":        "'bad-request'", "binding_version": "99",
 	} {
 		values := append([]string(nil), columns...)
 		for i, name := range columns {
-			if name == "event_id" { values[i] = "'22222222-2222-4222-8222-222222222222'" }
-			if name == column { values[i] = expression }
+			if name == "event_id" {
+				values[i] = "'22222222-2222-4222-8222-222222222222'"
+			}
+			if name == column {
+				values[i] = expression
+			}
 		}
-		rejected(t, db, "INSERT INTO observer_events("+strings.Join(columns,",")+") SELECT "+strings.Join(values,",")+" FROM observer_events LIMIT 1")
+		rejected(t, db, "INSERT INTO observer_events("+strings.Join(columns, ",")+") SELECT "+strings.Join(values, ",")+" FROM observer_events LIMIT 1")
 	}
 	withTransaction := verified(t, func(s string) string {
 		s = strings.Replace(s, "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", 1)
-		return strings.TrimSuffix(s,"}") + `,"provider_transaction_id":"synthetic-provider-reference"}`
+		return strings.TrimSuffix(s, "}") + `,"provider_transaction_id":"synthetic-provider-reference"}`
 	})
-	if _, err := observerstore.RecordEvidence(context.Background(), db, "test", "fixture-key-a", withTransaction, 1792022400000); err != nil { t.Fatal(err) }
+	if _, err := observerstore.RecordEvidence(context.Background(), db, "test", "fixture-key-a", withTransaction, 1792022400000); err != nil {
+		t.Fatal(err)
+	}
 	var txID string
 	db.Raw(`SELECT provider_transaction_id FROM observer_events WHERE event_id='22222222-2222-4222-8222-222222222222'`).Scan(&txID)
-	if txID != "synthetic-provider-reference" || count(t, db, "observer_events") != 2 { t.Fatal("optional provider evidence corrupted") }
+	if txID != "synthetic-provider-reference" || count(t, db, "observer_events") != 2 {
+		t.Fatal("optional provider evidence corrupted")
+	}
 }
