@@ -73,11 +73,6 @@ func (s *OrderService) Create(ctx context.Context, req *CreateOrderRequest) (*Cr
 	if strings.TrimSpace(req.OutTradeNo) == "" || len(req.OutTradeNo) > 64 {
 		return nil, errors.New("商户订单号格式错误")
 	}
-	if req.MerchantNotifyURL != "" {
-		if err := safehttp.ValidateURL(ctx, req.MerchantNotifyURL); err != nil {
-			return nil, err
-		}
-	}
 	if req.ReturnURL != "" {
 		if _, err := safehttp.ParseURL(req.ReturnURL); err != nil {
 			return nil, err
@@ -165,6 +160,11 @@ func (s *OrderService) reserveOrder(ctx context.Context, req *CreateOrderRequest
 		}
 		if merchant.Status != 1 {
 			return errors.New("商户已被禁用")
+		}
+		if req.MerchantNotifyURL != "" {
+			if err := validateMerchantCallback(ctx, req.MerchantNotifyURL, scope); err != nil {
+				return err
+			}
 		}
 		var count int64
 		if err := tx.Model(&model.Order{}).Where("merchant_id = ? AND out_trade_no = ?", req.MerchantID, req.OutTradeNo).Count(&count).Error; err != nil {

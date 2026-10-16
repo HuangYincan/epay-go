@@ -81,7 +81,7 @@ func (s *NotifyService) sendNotify(order *model.Order, force bool) error {
 	log.Printf("Send merchant notify: trade_no=%s notify_url=%s notify_count=%d", order.TradeNo, order.NotifyURL, order.NotifyCount)
 
 	// 发送请求
-	success := s.doNotify(order.NotifyURL, params)
+	success := s.doNotify(order, params)
 	return s.finishNotify(order, token, success)
 }
 
@@ -158,9 +158,19 @@ func (s *NotifyService) generateSign(params url.Values, key string) string {
 }
 
 // doNotify 执行通知请求
-func (s *NotifyService) doNotify(notifyURL string, params url.Values) bool {
-	if err := safehttp.ValidateURL(context.Background(), notifyURL); err != nil {
+func (s *NotifyService) doNotify(order *model.Order, params url.Values) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	notifyURL := order.NotifyURL
+	client, err := syntheticCallbackClient(ctx, order)
+	if err != nil {
 		return false
+	}
+	if client == nil {
+		if err := safehttp.ValidateURL(ctx, notifyURL); err != nil {
+			return false
+		}
+		client = s.httpClient
 	}
 	// 构建完整URL
 	fullURL := notifyURL
@@ -170,7 +180,11 @@ func (s *NotifyService) doNotify(notifyURL string, params url.Values) bool {
 		fullURL += "?" + params.Encode()
 	}
 
-	resp, err := s.httpClient.Get(fullURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("Notify request failed: %v", err)
 		return false
