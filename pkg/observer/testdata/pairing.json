@@ -1,0 +1,90 @@
+{
+  "protocol": "observer-pairing-v1",
+  "public_fixture_secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "requests": [
+    {
+      "id": "inspect",
+      "operation": "inspect",
+      "body": "{\"schema_version\":1}",
+      "valid": true
+    },
+    {
+      "id": "redeem",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}",
+      "valid": true
+    },
+    {
+      "id": "activate",
+      "operation": "activate",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}",
+      "valid": true
+    },
+    {
+      "id": "unknown",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\",\"order_id\":\"forbidden\"}",
+      "valid": false
+    },
+    {
+      "id": "duplicate",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\",\"schema_version\":1}",
+      "valid": false
+    },
+    {
+      "id": "float",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1.0,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}",
+      "valid": false
+    },
+    {
+      "id": "exponent",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1e0,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}",
+      "valid": false
+    },
+    {
+      "id": "null",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":null}",
+      "valid": false
+    },
+    {
+      "id": "padding",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\"}",
+      "valid": false
+    },
+    {
+      "id": "trailing_bits",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh9\"}",
+      "valid": false
+    },
+    {
+      "id": "bad_uuid",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"11111111-1111-5111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}",
+      "valid": false
+    },
+    {
+      "id": "surrogate",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"\\ud800\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}",
+      "valid": false
+    },
+    {
+      "id": "trailing",
+      "operation": "redeem",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}{}",
+      "valid": false
+    },
+    {
+      "id": "inspect_secret",
+      "operation": "inspect",
+      "body": "{\"schema_version\":1,\"enrollment_id\":\"11111111-1111-4111-8111-111111111111\",\"resume_secret\":\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\"}",
+      "valid": false
+    }
+  ]
+}
