@@ -117,10 +117,11 @@ func CheckOrderWindow(tx *gorm.DB, order *model.Order, now time.Time) error {
 		Enabled                bool
 	}
 	result := tx.Raw(`SELECT c.environment, c.created_at_ms, c.observer_pay_expires_at_ms,
-      (e.enabled AND e.source_class='synthetic' AND r.enabled AND m.enabled) AS enabled
+      (e.enabled AND e.source_class='synthetic' AND r.enabled AND m.enabled AND merchant.status=1 AND merchant.deleted_at IS NULL) AS enabled
       FROM observer_amount_claims c JOIN observer_environments e USING(environment)
       JOIN observer_receivers r ON r.environment=c.environment AND r.receiver_id=c.receiver_id AND r.provider=c.provider
       JOIN observer_synthetic_merchants m ON m.environment=c.environment AND m.merchant_id=c.merchant_id
+      JOIN merchants merchant ON merchant.id=c.merchant_id
       WHERE c.order_id = ?`, order.ID).Scan(&claim)
 	if result.Error != nil {
 		return result.Error

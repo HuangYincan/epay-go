@@ -61,3 +61,19 @@ BEGIN
     RETURN NEW;
 END $$;
 CREATE TRIGGER observer_order_claim_guard BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION observer_guard_order_claim();
+
+-- Alias registration participates in the same receiver serialization as claims.
+-- It cannot introduce previously hidden same-amount history behind an existing window.
+CREATE OR REPLACE FUNCTION observer_check_channel() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM 1 FROM observer_environments WHERE environment = NEW.environment FOR SHARE;
+    PERFORM 1 FROM observer_receivers WHERE environment = NEW.environment AND receiver_id = NEW.receiver_id AND provider = NEW.provider FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'observer_receiver_missing'; END IF;
+    PERFORM 1 FROM channels WHERE id = NEW.channel_id AND plugin = 'epay' AND deleted_at IS NULL FOR SHARE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'observer_channel_scope'; END IF;
+    IF EXISTS (SELECT 1 FROM orders o JOIN observer_amount_claims c ON c.amount_minor = o.amount * 100
+        WHERE o.channel_id = NEW.channel_id AND o.pay_type = NEW.provider
+          AND c.environment = NEW.environment AND c.receiver_id = NEW.receiver_id AND c.provider = NEW.provider)
+    THEN RAISE EXCEPTION 'observer_alias_history_conflict'; END IF;
+    RETURN NEW;
+END $$;

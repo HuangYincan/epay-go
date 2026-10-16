@@ -13,6 +13,7 @@ import (
 	"github.com/example/epay-go/internal/model"
 	"github.com/example/epay-go/internal/observerstore"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 func TestSyntheticConcurrentAmountClaimsAcrossAliasesAndMerchants(t *testing.T) {
@@ -254,4 +255,102 @@ func TestSyntheticConcurrentIdenticalRequestReturnsOneWindow(t *testing.T) {
 		}
 	}
 	f.counts(t, 1, 1)
+}
+
+func TestSyntheticCachedQRRejectsDisabledOrArchivedOriginalChannel(t *testing.T) {
+	for _, change := range []string{"status=0", "deleted_at=now()"} {
+		t.Run(change, func(t *testing.T) {
+			f := newClaimFixture(t)
+			o := f.create(t, "cached-channel", "wxpay")
+			f.exec(t, "UPDATE channels SET "+change+" WHERE id=?", o.ChannelID)
+			if r, err := f.service.Checkout(context.Background(), o.TradeNo, "wxpay"); !errors.Is(err, observerstore.ErrSyntheticDisabled) || r != nil {
+				t.Fatalf("disabled original channel returned cached QR: %v", err)
+			}
+		})
+	}
+}
+
+func TestSyntheticAliasRegistrationCannotIntroduceClaimHistoryCollision(t *testing.T) {
+	for attempt := 0; attempt < 4; attempt++ {
+		t.Run(fmt.Sprint(attempt), func(t *testing.T) {
+			f := newClaimFixture(t)
+			legacyChannel := f.channels[0]
+			legacyChannel.ID = 0
+			legacyChannel.Name = "unmapped-history"
+			if err := f.db.Create(&legacyChannel).Error; err != nil {
+				t.Fatal(err)
+			}
+			legacy := model.Order{TradeNo: "legacy-before-alias", OutTradeNo: "legacy-before-alias", MerchantID: f.merchants[1].ID, ChannelID: legacyChannel.ID, PayType: "wxpay", Amount: decimal.RequireFromString("10.01"), RealAmount: decimal.RequireFromString("10.01")}
+			if err := f.db.Create(&legacy).Error; err != nil {
+				t.Fatal(err)
+			}
+			start := make(chan struct{})
+			claimed := make(chan error, 1)
+			aliased := make(chan error, 1)
+			go func() {
+				<-start
+				_, err := f.service.Create(context.Background(), f.request("race-claim", "wxpay", 0, 0))
+				claimed <- err
+			}()
+			go func() {
+				<-start
+				aliased <- f.db.Exec(`INSERT INTO observer_channel_aliases VALUES (?,'claim-test','receiver-wx','wxpay')`, legacyChannel.ID).Error
+			}()
+			close(start)
+			claimErr, aliasErr := <-claimed, <-aliased
+			if (claimErr == nil) == (aliasErr == nil) {
+				t.Fatalf("must choose one safe outcome, claim=%v alias=%v", claimErr, aliasErr)
+			}
+			if claimErr == nil {
+				f.counts(t, 2, 1)
+			} else {
+				if !errors.Is(claimErr, observerstore.ErrAmountUnavailable) {
+					t.Fatal(claimErr)
+				}
+				f.counts(t, 1, 0)
+			}
+		})
+	}
+}
+
+func TestSyntheticArchivedCandidateCannotFallBackToLegacyChannel(t *testing.T) {
+	f := newClaimFixture(t)
+	f.exec(t, `UPDATE channels SET status=0 WHERE id=?`, f.channels[1].ID)
+	legacy := f.channels[0]
+	legacy.ID = 0
+	legacy.Name = "legacy-fallback"
+	legacy.Sort = 100
+	if err := f.db.Create(&legacy).Error; err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	archived := false
+	callback := "test:archive_observer_after_candidate_read"
+	if err := f.db.Callback().Query().After("gorm:query").Register(callback, func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*[]model.Channel); ok && tx.Statement.Table == "channels" {
+			once.Do(func() {
+				f.exec(t, `UPDATE channels SET deleted_at=now() WHERE id=?`, f.channels[0].ID)
+				archived = true
+			})
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer f.db.Callback().Query().Remove(callback)
+	req := f.request("no-fallback", "wxpay", 0, 0)
+	req.ChannelID = 0
+	r, err := f.service.Create(context.Background(), req)
+	if !archived || r != nil || !errors.Is(err, observerstore.ErrSyntheticDisabled) {
+		t.Fatalf("archived candidate fallback: archived=%v response=%v error=%v", archived, r, err)
+	}
+	f.counts(t, 0, 0)
+}
+
+func TestSyntheticCachedQRRejectsDisabledMerchant(t *testing.T) {
+	f := newClaimFixture(t)
+	o := f.create(t, "disabled-merchant", "wxpay")
+	f.exec(t, `UPDATE merchants SET status=0 WHERE id=?`, o.MerchantID)
+	if r, err := f.service.Checkout(context.Background(), o.TradeNo, "wxpay"); r != nil || !errors.Is(err, observerstore.ErrSyntheticDisabled) {
+		t.Fatalf("disabled merchant cached QR: %v", err)
+	}
 }

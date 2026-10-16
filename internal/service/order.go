@@ -130,6 +130,9 @@ func (s *OrderService) reserveOrder(ctx context.Context, req *CreateOrderRequest
 		}
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(channel, channel.ID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				if scope != nil {
+					return observerstore.ErrSyntheticDisabled
+				}
 				return fmt.Errorf("%w: 通道已删除", errChannelUnavailable)
 			}
 			return err
@@ -246,6 +249,9 @@ func (s *OrderService) Checkout(ctx context.Context, no, payType string) (*Creat
 		var channel model.Channel
 		if err := tx.Unscoped().First(&channel, order.ChannelID).Error; err != nil {
 			return err
+		}
+		if order.ObserverPayExpiresAt != nil && (channel.Status != 1 || channel.DeletedAt.Valid) {
+			return observerstore.ErrSyntheticDisabled
 		}
 		wechatH5 := channel.Plugin == "wechat" && payment.CanonicalMethod(channel.Plugin, order.PayMethod) == "h5"
 		cacheValid := order.CheckoutExpiresAt == nil || time.Now().Before(*order.CheckoutExpiresAt)
