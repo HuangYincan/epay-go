@@ -63,9 +63,9 @@ func (p *PairingService) SetConfirmationPaused(ctx context.Context, receiver str
 			return nil
 		}
 		frozen := tx.Exec(`INSERT INTO observer_match_decisions(event_pk,policy_version,outcome,reason,candidate_count,candidate_cutoff_ms,order_id,decided_at_ms)
-    SELECT e.id,?,'evidence_insufficient','confirmation_paused',COALESCE(s.candidate_count,0),e.first_received_at_ms,s.candidate_order_id,?
+    SELECT e.id,CASE WHEN e.source_class='notification' THEN ? ELSE ? END,'evidence_insufficient','confirmation_paused',COALESCE(s.candidate_count,0),e.first_received_at_ms,s.candidate_order_id,?
     FROM observer_events e LEFT JOIN observer_candidate_snapshots s ON s.event_pk=e.id
-    WHERE e.environment=? AND e.receiver_id=? AND e.processing_status='pending'`, SyntheticPolicy, now, p.environment, receiver)
+    WHERE e.environment=? AND e.receiver_id=? AND e.processing_status='pending'`, NotificationReviewPolicy, SyntheticPolicy, now, p.environment, receiver)
 		if frozen.Error != nil {
 			return frozen.Error
 		}

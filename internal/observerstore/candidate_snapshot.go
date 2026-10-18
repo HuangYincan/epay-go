@@ -55,6 +55,9 @@ func freezeCandidates(tx *gorm.DB, eventPK int64) error {
 	if err := tx.Raw(`SELECT paused FROM observer_confirmation_controls WHERE environment=? AND receiver_id=?`, e.Environment, e.ReceiverID).Scan(&paused).Error; err != nil {
 		return err
 	}
+	if e.SourceClass == "notification" {
+		return reviewNotification(tx, e, count, id, paused)
+	}
 	if paused {
 		return persistDecision(tx, MatchingDecision{EventPK: e.ID, PolicyVersion: SyntheticPolicy, Outcome: "evidence_insufficient", Reason: "confirmation_paused", CandidateCount: count, CandidateCutoffMs: e.FirstReceivedAtMs, OrderID: id, DecidedAtMs: e.FirstReceivedAtMs}, 0)
 	}
