@@ -35,6 +35,9 @@ var schemaSix string
 //go:embed 007_notification_review.sql
 var schemaSeven string
 
+//go:embed 008_notification_pilot.sql
+var schemaEight string
+
 var ErrStorage = errors.New("observer_storage")
 var ErrSchema = errors.New("observer_schema_mismatch")
 var ErrScope = errors.New("observer_scope_mismatch")
@@ -56,7 +59,7 @@ func Migrate(ctx context.Context, db *gorm.DB) error {
 		if err := tx.Raw(`SELECT version, checksum FROM observer_schema_versions ORDER BY version`).Scan(&versions).Error; err != nil {
 			return err
 		}
-		schemas := []string{schemaOne, schemaTwo, schemaThree, schemaFour, schemaFive, schemaSix, schemaSeven}
+		schemas := []string{schemaOne, schemaTwo, schemaThree, schemaFour, schemaFive, schemaSix, schemaSeven, schemaEight}
 		if len(versions) > len(schemas) {
 			return ErrSchema
 		}
