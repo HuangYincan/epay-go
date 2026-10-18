@@ -359,7 +359,7 @@ func TestNotificationReviewUpgradePreservesPendingHistory(t *testing.T) {
 	if err := db.Raw(`SELECT processing_status FROM observer_events WHERE id=?`, result.EventPK).Scan(&state).Error; err != nil {
 		t.Fatal(err)
 	}
-	if state != "pending" || count(t, db, "observer_schema_versions") != 7 || count(t, db, "observer_events") != 1 || count(t, db, "observer_match_decisions") != 0 || count(t, db, "observer_consumptions") != 0 {
+	if state != "pending" || count(t, db, "observer_schema_versions") != 8 || count(t, db, "observer_events") != 1 || count(t, db, "observer_match_decisions") != 0 || count(t, db, "observer_consumptions") != 0 {
 		t.Fatal("upgrade reinterpreted history")
 	}
 }

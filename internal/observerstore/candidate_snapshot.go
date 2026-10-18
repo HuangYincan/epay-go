@@ -40,7 +40,14 @@ func freezeCandidates(tx *gorm.DB, eventPK int64) error {
 	if err := tx.Raw(`SELECT * FROM observer_events WHERE id=?`, eventPK).Scan(&e).Error; err != nil {
 		return err
 	}
+	pilot, err := notificationPilot(tx, e)
+	if err != nil {
+		return err
+	}
 	count, id, err := currentCandidates(tx, e)
+	if pilot != nil {
+		count, id, err = pilotCandidates(tx, e, pilot)
+	}
 	if err != nil {
 		return err
 	}
@@ -54,6 +61,9 @@ func freezeCandidates(tx *gorm.DB, eventPK int64) error {
 	var paused bool
 	if err := tx.Raw(`SELECT paused FROM observer_confirmation_controls WHERE environment=? AND receiver_id=?`, e.Environment, e.ReceiverID).Scan(&paused).Error; err != nil {
 		return err
+	}
+	if pilot != nil {
+		return settleNotificationPilot(tx, e, pilot, count, id, paused)
 	}
 	if e.SourceClass == "notification" {
 		return reviewNotification(tx, e, count, id, paused)

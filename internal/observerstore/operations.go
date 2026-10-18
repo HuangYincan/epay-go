@@ -139,8 +139,10 @@ func (p *PairingService) QueryEventTrace(ctx context.Context, receiver string, b
  d.policy_version,d.outcome,d.reason,COALESCE(d.candidate_count,s.candidate_count) AS candidate_count,COALESCE(d.order_id,s.candidate_order_id) AS candidate_order_id,co.trade_no AS candidate_order_trade_no,co.status AS candidate_order_status,o.status AS order_status,o.trade_no AS order_trade_no,o.out_trade_no AS merchant_order_no,c.ledger_id,(l.amount*100)::bigint AS income_minor,o.notify_status,o.notify_count
  FROM observer_events e LEFT JOIN observer_match_decisions d ON d.event_pk=e.id
  LEFT JOIN observer_candidate_snapshots s ON s.event_pk=e.id
- LEFT JOIN orders co ON co.id=COALESCE(d.order_id,s.candidate_order_id) AND EXISTS (
+ LEFT JOIN orders co ON co.id=COALESCE(d.order_id,s.candidate_order_id) AND (EXISTS (
  SELECT 1 FROM observer_channel_aliases a WHERE a.channel_id=co.channel_id AND a.provider=co.pay_type AND a.environment=e.environment AND a.receiver_id=e.receiver_id AND a.provider=e.provider)
+ OR EXISTS (
+ SELECT 1 FROM observer_notification_pilots p WHERE p.order_id=co.id AND p.environment=e.environment AND p.receiver_id=e.receiver_id AND p.provider=e.provider))
  LEFT JOIN observer_consumptions c ON c.event_pk=e.id LEFT JOIN orders o ON o.id=c.order_id LEFT JOIN balance_records l ON l.id=c.ledger_id
  WHERE e.environment=? AND e.receiver_id=? AND (?=0 OR e.id<?) ORDER BY e.id DESC LIMIT ?`, p.environment, receiver, before, before, limit).Scan(&result.Events).Error; err != nil {
 			return err

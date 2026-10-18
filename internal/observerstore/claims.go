@@ -140,7 +140,11 @@ func RejectLegacySettlement(tx *gorm.DB, order *model.Order) error {
 	if err != nil {
 		return err
 	}
-	if mapped || order.ObserverPayExpiresAt != nil {
+	var pilotCount int64
+	if err := tx.Table("observer_notification_pilots").Where("order_id=?", order.ID).Count(&pilotCount).Error; err != nil {
+		return err
+	}
+	if mapped || order.ObserverPayExpiresAt != nil || pilotCount != 0 {
 		return ErrObserverSettlement
 	}
 	return nil
