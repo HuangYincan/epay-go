@@ -463,7 +463,7 @@ func TestMatchNotificationSourceNeverQualifiesEvenInTaggedBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, err := matcher.ProcessEvent(context.Background(), id, pairingNow)
-	if err != nil || d.Outcome != "evidence_insufficient" {
+	if err != nil || d.PolicyVersion != observerstore.NotificationReviewPolicy || d.Outcome != "unmatched" || d.Reason != "no_candidate" {
 		t.Fatalf("notification source qualified: %+v %v", d, err)
 	}
 	if count(t, db, "observer_consumptions") != 0 || count(t, db, "balance_records") != 0 {

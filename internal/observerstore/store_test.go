@@ -91,6 +91,11 @@ func seed(t *testing.T, db *gorm.DB) {
 	if err := observerstore.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
+	seedIdentityRows(t, db)
+}
+
+func seedIdentityRows(t *testing.T, db *gorm.DB) {
+	t.Helper()
 	exec(t, db, `INSERT INTO observer_environments(environment, source_class) VALUES ('test','synthetic'),('prod','notification')`)
 	exec(t, db, `INSERT INTO observer_receivers(environment,receiver_id,provider,account_ref) VALUES ('test','fixture-receiver-wx','wxpay','account-wx'),('test','fixture-receiver-ali','alipay','account-ali'),('prod','prod-receiver','wxpay','prod-account')`)
 	exec(t, db, `INSERT INTO observer_devices(environment,device_id) VALUES ('test','fixture-device-a'),('test','device-b'),('prod','prod-device')`)
@@ -165,7 +170,7 @@ func TestMigrationPreservesLegacyDataAndRunsConcurrently(t *testing.T) {
 	if err := database.Migrate(); err != nil {
 		t.Fatal(err)
 	}
-	if count(t, db, "observer_schema_versions") != 6 || count(t, db, "observer_events") != 0 {
+	if count(t, db, "observer_schema_versions") != 7 || count(t, db, "observer_events") != 0 {
 		t.Fatal("migration did not remain additive")
 	}
 	var afterOrder model.Order
@@ -199,7 +204,7 @@ func TestMigrationCollisionRollsBackDDLAndUnknownVersionFails(t *testing.T) {
 	if err := observerstore.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	exec(t, db, `INSERT INTO observer_schema_versions VALUES (7,'future')`)
+	exec(t, db, `INSERT INTO observer_schema_versions VALUES (8,'future')`)
 	if !errors.Is(observerstore.Migrate(context.Background(), db), observerstore.ErrSchema) {
 		t.Fatal("future schema ignored")
 	}
