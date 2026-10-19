@@ -12,25 +12,25 @@ import (
 
 // Review facts are operator input, never inferred from a parser name or readiness check.
 type PilotOperatorInput struct {
-	SchemaVersion          int    `json:"schema_version"`
-	Origin                 string `json:"origin"`
-	Environment            string `json:"environment"`
-	ReceiverID             string `json:"receiver_id"`
-	OrderID                int64  `json:"order_id"`
-	ActorID                int64  `json:"actor_id"`
-	ExpiresAtMs            int64  `json:"expires_at_ms"`
-	ParserVersion          string `json:"parser_version"`
-	EvidenceRef            string `json:"evidence_ref"`
-	TemplateVerified       int    `json:"template_verified"`
-	ChatBoundaryVerified   int    `json:"chat_boundary_verified"`
-	IdentityPolicyApproved int    `json:"identity_policy_approved"`
-	AmountPolicyApproved   int    `json:"amount_policy_approved"`
-	NewAPIContractVerified int    `json:"newapi_contract_verified"`
+	SchemaVersion            int    `json:"schema_version"`
+	Origin                   string `json:"origin"`
+	Environment              string `json:"environment"`
+	ReceiverID               string `json:"receiver_id"`
+	OrderID                  int64  `json:"order_id"`
+	ActorID                  int64  `json:"actor_id"`
+	ExpiresAtMs              int64  `json:"expires_at_ms"`
+	ParserVersion            string `json:"parser_version"`
+	EvidenceRef              string `json:"evidence_ref"`
+	TemplateVerified         int    `json:"template_verified"`
+	ChatBoundaryVerified     int    `json:"chat_boundary_verified"`
+	IdentityPolicyApproved   int    `json:"identity_policy_approved"`
+	AmountPolicyApproved     int    `json:"amount_policy_approved"`
+	MerchantCallbackVerified int    `json:"merchant_callback_verified"`
 }
 
 const PilotOperatorParserVersion = "alipay-12.12.30-receipt-v1"
 
-var operatorFields = []string{"schema_version", "origin", "environment", "receiver_id", "order_id", "actor_id", "expires_at_ms", "parser_version", "evidence_ref", "template_verified", "chat_boundary_verified", "identity_policy_approved", "amount_policy_approved", "newapi_contract_verified"}
+var operatorFields = []string{"schema_version", "origin", "environment", "receiver_id", "order_id", "actor_id", "expires_at_ms", "parser_version", "evidence_ref", "template_verified", "chat_boundary_verified", "identity_policy_approved", "amount_policy_approved", "merchant_callback_verified"}
 
 func DecodePilotOperatorInput(body []byte) (PilotOperatorInput, error) {
 	var in PilotOperatorInput
@@ -43,11 +43,11 @@ func DecodePilotOperatorInput(body []byte) (PilotOperatorInput, error) {
 	if err := json.Unmarshal(body, &in); err != nil {
 		return PilotOperatorInput{}, ErrInput
 	}
-	if in.SchemaVersion != 1 || !observer.ValidOrigin(in.Origin) || !observer.ValidIdentifier(in.Environment) || !observer.ValidIdentifier(in.ReceiverID) ||
+	if in.SchemaVersion != 2 || !observer.ValidOrigin(in.Origin) || !observer.ValidIdentifier(in.Environment) || !observer.ValidIdentifier(in.ReceiverID) ||
 		!observer.ValidIdentifier(in.EvidenceRef) || in.ParserVersion != PilotOperatorParserVersion || in.OrderID <= 0 || in.ActorID <= 0 || in.ExpiresAtMs <= 0 || in.ExpiresAtMs > observer.MaxTime {
 		return PilotOperatorInput{}, ErrInput
 	}
-	for _, v := range []int{in.TemplateVerified, in.ChatBoundaryVerified, in.IdentityPolicyApproved, in.AmountPolicyApproved, in.NewAPIContractVerified} {
+	for _, v := range []int{in.TemplateVerified, in.ChatBoundaryVerified, in.IdentityPolicyApproved, in.AmountPolicyApproved, in.MerchantCallbackVerified} {
 		if v < 0 || v > 1 {
 			return PilotOperatorInput{}, ErrInput
 		}
@@ -55,7 +55,7 @@ func DecodePilotOperatorInput(body []byte) (PilotOperatorInput, error) {
 	return in, nil
 }
 func (in PilotOperatorInput) ReviewComplete() bool {
-	return in.TemplateVerified == 1 && in.ChatBoundaryVerified == 1 && in.IdentityPolicyApproved == 1 && in.AmountPolicyApproved == 1 && in.NewAPIContractVerified == 1
+	return in.TemplateVerified == 1 && in.ChatBoundaryVerified == 1 && in.IdentityPolicyApproved == 1 && in.AmountPolicyApproved == 1 && in.MerchantCallbackVerified == 1
 }
 func (in PilotOperatorInput) Preflight(now int64) PilotPreflightInput {
 	return PilotPreflightInput{Environment: in.Environment, ReceiverID: in.ReceiverID, ParserVersion: in.ParserVersion, OrderID: in.OrderID, ActorID: in.ActorID, NowMs: now, ExpiresAtMs: in.ExpiresAtMs}
@@ -80,7 +80,6 @@ type PilotHandoff struct {
 	ChatBoundaryVerified   int    `json:"chat_boundary_verified"`
 	IdentityPolicyApproved int    `json:"identity_policy_approved"`
 	AmountPolicyApproved   int    `json:"amount_policy_approved"`
-	NewAPIContractVerified int    `json:"newapi_contract_verified"`
 }
 
 func verifiedPilotOrigin(tx *gorm.DB, in PilotOperatorInput, now int64) (bool, error) {
@@ -230,7 +229,7 @@ func PrepareReviewedNotificationPilot(ctx context.Context, db *gorm.DB, in Pilot
 				return e
 			}
 		}
-		handoff = PilotHandoff{SchemaVersion: 1, Origin: in.Origin, Environment: pilot.Environment, DeviceID: pilot.DeviceID, ReceiverID: pilot.ReceiverID, BindingVersion: pilot.BindingVersion, Provider: "alipay", SourceClass: "notification", ParserVersion: pilot.ParserVersion, AmountMinor: pilot.AmountMinor, ServerArmedAtMs: pilot.ArmedAtMs, ServerExpiresAtMs: pilot.ExpiresAtMs, EvidenceRef: in.EvidenceRef, TemplateVerified: in.TemplateVerified, ChatBoundaryVerified: in.ChatBoundaryVerified, IdentityPolicyApproved: in.IdentityPolicyApproved, AmountPolicyApproved: in.AmountPolicyApproved, NewAPIContractVerified: in.NewAPIContractVerified}
+		handoff = PilotHandoff{SchemaVersion: 2, Origin: in.Origin, Environment: pilot.Environment, DeviceID: pilot.DeviceID, ReceiverID: pilot.ReceiverID, BindingVersion: pilot.BindingVersion, Provider: "alipay", SourceClass: "notification", ParserVersion: pilot.ParserVersion, AmountMinor: pilot.AmountMinor, ServerArmedAtMs: pilot.ArmedAtMs, ServerExpiresAtMs: pilot.ExpiresAtMs, EvidenceRef: in.EvidenceRef, TemplateVerified: in.TemplateVerified, ChatBoundaryVerified: in.ChatBoundaryVerified, IdentityPolicyApproved: in.IdentityPolicyApproved, AmountPolicyApproved: in.AmountPolicyApproved}
 		return nil
 	})
 	if err != nil {
