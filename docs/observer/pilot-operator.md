@@ -2,6 +2,7 @@
 
 2026-10-19；#28 / Android #82，SPEC-043，承接SPEC-036/041。补齐实际登记与Android私有handoff；不增加公网接口，不部署，不批准任何实际规则。当前真实模板、聊天边界、身份/金额政策及线上New API契约仍不完整，**不得在线apply**。
 
+2026-10-19后续#30已完成[休眠schema8升级](schema-upgrade.md)，规则/pilot仍为0；本页“未部署”指原#28开发批。升级不等于规则核验或在线apply授权，New API及真实对照仍独立。
 ## 使用
 
 构建`./cmd/observer-pilot-operator`。`EPAY_OPERATOR_DSN`仅从私有环境提供，不写入公开命令/日志。输入是最多4096字节的严格平面JSON：`schema_version=1`、origin/environment/receiver_id、现有order_id/actor_id、显式expires_at_ms、固定parser_version、非秘密evidence_ref，以及五个0/1事实（template_verified、chat_boundary_verified、identity_policy_approved、amount_policy_approved、newapi_contract_verified）。缺项/重复/未知/非整数拒绝。五个事实须来自独立审查，不能复制测试向量代替审批；当前任何缺项保持0。
