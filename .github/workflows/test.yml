@@ -26,6 +26,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      OPERATOR_CLI_BINARY: /tmp/observer-pilot-operator-test
       EPAY_TEST_DATABASE_DSN: host=127.0.0.1 port=5432 user=epay_test password=test-only dbname=epay_test sslmode=disable
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +34,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Compile native operator for actual CLI contract tests
+        run: go build -o "$OPERATOR_CLI_BINARY" ./cmd/observer-pilot-operator
       - name: Test with race detector and PostgreSQL
         run: go test -race ./...
       - name: Test explicitly isolated synthetic order build
@@ -49,10 +52,11 @@ jobs:
         run: |
           go build -o /tmp/epay-server ./cmd/server
           go build -o /tmp/observer-pilot-preflight ./cmd/observer-pilot-preflight
+          go build -o /tmp/observer-pilot-operator ./cmd/observer-pilot-operator
       - name: Check observer protocol formatting
         run: |
-          gofmt -d pkg/observer internal/observerstore internal/observerhttp cmd/server cmd/observer-pilot-preflight internal/database/migrate.go
-          test -z "$(gofmt -l pkg/observer internal/observerstore internal/observerhttp cmd/server cmd/observer-pilot-preflight internal/database/migrate.go)"
+          gofmt -d pkg/observer internal/observerstore internal/observerhttp cmd/server cmd/observer-pilot-preflight cmd/observer-pilot-operator internal/database/migrate.go
+          test -z "$(gofmt -l pkg/observer internal/observerstore internal/observerhttp cmd/server cmd/observer-pilot-preflight cmd/observer-pilot-operator internal/database/migrate.go)"
       - name: Check reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
   frontend:
