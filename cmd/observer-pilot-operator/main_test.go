@@ -40,7 +40,7 @@ func invoke(t *testing.T, args ...string) (int, string) {
 }
 func operatorInput(t *testing.T, review int) string {
 	t.Helper()
-	in := observerstore.PilotOperatorInput{SchemaVersion: 1, Origin: "https://observer.example", Environment: "test", ReceiverID: "receiver", OrderID: 1, ActorID: 1, ExpiresAtMs: time.Now().UnixMilli() + 300000, ParserVersion: observerstore.PilotOperatorParserVersion, EvidenceRef: "synthetic", TemplateVerified: review, ChatBoundaryVerified: review, IdentityPolicyApproved: review, AmountPolicyApproved: review, NewAPIContractVerified: review}
+	in := observerstore.PilotOperatorInput{SchemaVersion: 2, Origin: "https://observer.example", Environment: "test", ReceiverID: "receiver", OrderID: 1, ActorID: 1, ExpiresAtMs: time.Now().UnixMilli() + 300000, ParserVersion: observerstore.PilotOperatorParserVersion, EvidenceRef: "synthetic", TemplateVerified: review, ChatBoundaryVerified: review, IdentityPolicyApproved: review, AmountPolicyApproved: review, MerchantCallbackVerified: review}
 	body, _ := json.Marshal(in)
 	p := filepath.Join(t.TempDir(), "input.json")
 	if e := os.WriteFile(p, body, 0600); e != nil {

@@ -27,13 +27,13 @@ func operatorFixture(t *testing.T) (*notificationFixture, *model.Order, observer
 	expiry := time.UnixMilli(pairingNow + 600000)
 	o := f.order(t, "operator-synthetic-order", pairingNow, &expiry, 0)
 	exec(t, f.db, `UPDATE orders SET notify_url='https://merchant.example/api/user/epay/notify',checkout_type='qrcode',pay_url='https://qr.example/synthetic-only' WHERE id=?`, o.ID)
-	return f, o, observerstore.PilotOperatorInput{SchemaVersion: 1, Origin: "https://observer.example", Environment: "prod", ReceiverID: f.enrollment.ReceiverID, OrderID: o.ID, ActorID: f.actor, ExpiresAtMs: pairingNow + 301000, ParserVersion: observerstore.PilotOperatorParserVersion, EvidenceRef: "synthetic-review-only", TemplateVerified: 1, ChatBoundaryVerified: 1, IdentityPolicyApproved: 1, AmountPolicyApproved: 1, NewAPIContractVerified: 1}
+	return f, o, observerstore.PilotOperatorInput{SchemaVersion: 2, Origin: "https://observer.example", Environment: "prod", ReceiverID: f.enrollment.ReceiverID, OrderID: o.ID, ActorID: f.actor, ExpiresAtMs: pairingNow + 301000, ParserVersion: observerstore.PilotOperatorParserVersion, EvidenceRef: "synthetic-review-only", TemplateVerified: 1, ChatBoundaryVerified: 1, IdentityPolicyApproved: 1, AmountPolicyApproved: 1, MerchantCallbackVerified: 1}
 }
 func TestPilotOperatorStrictReviewInput(t *testing.T) {
-	in := observerstore.PilotOperatorInput{SchemaVersion: 1, Origin: "https://observer.example", Environment: "test", ReceiverID: "receiver", OrderID: 1, ActorID: 1, ExpiresAtMs: 100000, ParserVersion: observerstore.PilotOperatorParserVersion, EvidenceRef: "synthetic", TemplateVerified: 1, ChatBoundaryVerified: 1, IdentityPolicyApproved: 1, AmountPolicyApproved: 1, NewAPIContractVerified: 1}
+	in := observerstore.PilotOperatorInput{SchemaVersion: 2, Origin: "https://observer.example", Environment: "test", ReceiverID: "receiver", OrderID: 1, ActorID: 1, ExpiresAtMs: 100000, ParserVersion: observerstore.PilotOperatorParserVersion, EvidenceRef: "synthetic", TemplateVerified: 1, ChatBoundaryVerified: 1, IdentityPolicyApproved: 1, AmountPolicyApproved: 1, MerchantCallbackVerified: 1}
 	raw, _ := json.Marshal(in)
 	base := string(raw)
-	for _, bad := range []string{base + "{}", strings.Replace(base, `"schema_version":1`, `"schema_version":1,"schema_version":1`, 1), strings.Replace(base, `"schema_version":1`, `"schema_version":1,"unknown":0`, 1), strings.Replace(base, `"template_verified":1`, `"template_verified":true`, 1), strings.Replace(base, `"template_verified":1`, `"template_verified":2`, 1), strings.Replace(base, `"template_verified":1`, `"template_verified":1.0`, 1), strings.Replace(base, `"actor_id":1`, `"actor_id":1e0`, 1), strings.Replace(base, in.ParserVersion, "unknown", 1), strings.Repeat(" ", 4097)} {
+	for _, bad := range []string{base + "{}", strings.Replace(base, `"schema_version":2`, `"schema_version":2,"schema_version":2`, 1), strings.Replace(base, `"schema_version":2`, `"schema_version":2,"unknown":0`, 1), strings.Replace(base, `"template_verified":1`, `"template_verified":true`, 1), strings.Replace(base, `"template_verified":1`, `"template_verified":2`, 1), strings.Replace(base, `"template_verified":1`, `"template_verified":1.0`, 1), strings.Replace(base, `"actor_id":1`, `"actor_id":1e0`, 1), strings.Replace(base, in.ParserVersion, "unknown", 1), strings.Repeat(" ", 4097)} {
 		if _, e := observerstore.DecodePilotOperatorInput([]byte(bad)); e == nil {
 			t.Fatal("invalid operator input accepted")
 		}
@@ -54,13 +54,48 @@ func TestPilotOperatorStrictReviewInput(t *testing.T) {
 		case 3:
 			bad.AmountPolicyApproved = 0
 		case 4:
-			bad.NewAPIContractVerified = 0
+			bad.MerchantCallbackVerified = 0
 		}
 		if _, _, e := observerstore.PrepareReviewedNotificationPilot(context.Background(), nil, bad, 1000); e == nil {
 			t.Fatal("incomplete review accepted")
 		}
 	}
 }
+
+// Nil DB proves rejected review/version input cannot reach registration or writes.
+func TestPilotOperatorRejectsLegacyAndMixedMerchantReview(t *testing.T) {
+	_, _, in := operatorFixture(t)
+	raw, _ := json.Marshal(in)
+	base := string(raw)
+	for _, bad := range []string{
+		strings.Replace(base, `"schema_version":2`, `"schema_version":1`, 1),
+		strings.Replace(base, `"merchant_callback_verified":1`, `"newapi_contract_verified":1`, 1),
+		strings.Replace(base, `"merchant_callback_verified":1`, `"merchant_callback_verified":1,"newapi_contract_verified":1`, 1),
+		strings.Replace(base, `,"merchant_callback_verified":1`, ``, 1),
+	} {
+		if _, e := observerstore.DecodePilotOperatorInput([]byte(bad)); e == nil {
+			t.Fatal("old/mixed/missing merchant review accepted")
+		}
+	}
+	in.SchemaVersion = 1
+	if _, _, e := observerstore.PrepareReviewedNotificationPilot(context.Background(), nil, in, pairingNow+1000); e == nil {
+		t.Fatal("legacy request reached registration")
+	}
+}
+
+func TestPilotOperatorMissingMerchantReviewLeavesNoRulesOrFunds(t *testing.T) {
+	f, _, in := operatorFixture(t)
+	in.MerchantCallbackVerified = 0
+	if _, _, e := observerstore.PrepareReviewedNotificationPilot(context.Background(), f.db, in, pairingNow+1000); e == nil {
+		t.Fatal("unreviewed merchant accepted")
+	}
+	for _, table := range []string{"observer_notification_rules", "observer_notification_pilots", "balance_records", "observer_consumptions"} {
+		if count(t, f.db, table) != 0 {
+			t.Fatal("unreviewed merchant wrote", table)
+		}
+	}
+}
+
 func TestPilotOperatorAtomicArmRecoveryAndSignedSyntheticReceipt(t *testing.T) {
 	f, o, in := operatorFixture(t)
 	handoff, recovered, e := observerstore.PrepareReviewedNotificationPilot(context.Background(), f.db, in, pairingNow+1000)
@@ -163,7 +198,7 @@ func TestPilotOperatorConcurrentRecoveryDoesNotRenew(t *testing.T) {
 }
 
 func TestPilotOperatorGoldenHandoffMatchesAndroidContract(t *testing.T) {
-	bytes, e := os.ReadFile("../../docs/observer/pilot-operator-v1/handoff.json")
+	bytes, e := os.ReadFile("../../docs/observer/pilot-operator-v2/handoff.json")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -171,8 +206,11 @@ func TestPilotOperatorGoldenHandoffMatchesAndroidContract(t *testing.T) {
 	if e = json.Unmarshal(bytes, &h); e != nil {
 		t.Fatal(e)
 	}
-	if h.SchemaVersion != 1 || h.SourceClass != "notification" || h.ParserVersion != observerstore.PilotOperatorParserVersion || h.AmountMinor != 1234 || h.ServerArmedAtMs != 100000 || h.ServerExpiresAtMs != 400000 {
+	if h.SchemaVersion != 2 || h.SourceClass != "notification" || h.ParserVersion != observerstore.PilotOperatorParserVersion || h.AmountMinor != 1234 || h.ServerArmedAtMs != 100000 || h.ServerExpiresAtMs != 400000 {
 		t.Fatal("golden handoff mismatch")
+	}
+	if strings.Contains(string(bytes), "merchant_callback_verified") || strings.Contains(string(bytes), "newapi_contract_verified") {
+		t.Fatal("Android handoff exposed merchant review")
 	}
 	encoded, e := json.Marshal(h)
 	if e != nil {
