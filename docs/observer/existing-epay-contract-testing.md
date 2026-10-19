@@ -8,11 +8,11 @@ operator严格输入v2将第五项改为merchant_callback_verified，核对既�
 
 ## 实际验证
 
-- 既有golang:1.26.9、postgres:16，独立无宿主端口网络/临时数据库，固定依赖离线readonly；原lab与所有线上服务不变。实际operator编译、受影响两包race通过132项测试/子测试（observerstore 128、CLI 4），0跳过，go vet通过。缺事实/旧版本在登记前拒绝、规则/试验/消费/收入零写入；原登记/恢复/并发/实际CLI私有输出条件回归通过。全部为合成数据。
+- 既有golang:1.26.9、postgres:16，独立无宿主端口网络/临时数据库，固定依赖离线readonly；原lab与所有线上服务不变。实际operator编译、受影响两包race通过132项测试/子测试（observerstore 128、CLI 4），0跳过，go vet通过。缺事实/旧版本在登记前拒绝、规则/试验/消费/收入零写入；原登记/恢复/并发/实际CLI私有输出条件回归通过。另补受影响operator在observersynthetic构建的15项race测试通过、0跳过。全部为合成数据。
 - 使用既有SDK/JBR，离线严格依赖构建productionDebug/AndroidTest、productionRelease及fixtureDebug，JVM与production lint通过。production 47项中46通过、1既有私有研究默认跳过；fixture 156项中155通过、1同类默认跳过。新增版本/混合字段与四项review缺失/0反例均运行。
 - 最终三个APK的productionRelease、productionDebug、fixtureDebug检查通过。没有安装本批APK、启用监听或重跑AVD/旧生命周期/支付验收，现有普通消息对照页保持WAITING。
 
-私有证据：/private/tmp/observer-existing-epay-contract-20261019，含构建、JSON测试事件、APK检查和独立审查结果。最终CI/PR/审查状态在交付后补充，不将本地结果冒充CI。
+私有证据：/private/tmp/observer-existing-epay-contract-20261019，含构建、JSON测试事件、APK检查和独立审查结果。独立Standards与Spec审查均无阻塞。Spec建议将数据库操作前拒绝明确限定为apply/登记路径，已同步双方规格；默认只读检查仍可读库报告阻塞。Android PR #95 / epay-go PR #33已创建，最终CI与合并状态以PR为准，不将本地结果冒充CI。
 
 ## 实际未验收
 
