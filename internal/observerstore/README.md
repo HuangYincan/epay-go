@@ -2,7 +2,7 @@
 
 关联epay-go #6、epay-observer-android #15，SPEC-014 / MODEL-01..04。规范术语见docs/observer/CONTEXT.md。
 
-`Migrate`在既有database.Migrate之后新增版本化SQL表，空环境默认禁用。独立事务、schema级advisory锁、脚本SHA256；未知版本/脚本漂移/表名碰撞失败，不修复或清数据。后续变化新增迁移，不能编辑已部署的001脚本。旧AutoMigrate仍是原机制，不宣称整个历史迁移原子。代码回退可以保留附加表，不提供自动删除历史的down migration。
+`Migrate`在既有database.Migrate之后新增版本化SQL表，空环境默认禁用。独立事务、schema级advisory锁、脚本SHA256；未知版本/脚本漂移/表名碰撞失败，不修复或清数据。后续变化新增迁移，不能编辑已部署的001脚本。旧AutoMigrate仍是原机制，不宣称整个历史迁移原子。代码回退必须先核对迁移器支持版本：schema6裸旧构建拒绝schema8。本批零rule/pilot休眠升级已准备[已知schema8的旧业务兼容构建](../../docs/observer/schema-upgrade.md)，存在试验历史时不适用；保留当前DB，不提供删除历史的down migration。
 
 receiver是稳定账户代号，channel/provider别名唯一并必须是epay插件；device属于环境，binding代次保留历史且不复活。credential只存固定格式的密文槽和授权元数据，密文加解密/发放不在本包。账户代号由运营登记，不能自动证明两个不同代号不是同一真实账户。
 
