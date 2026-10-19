@@ -46,11 +46,13 @@ jobs:
       - name: Vet
         run: go vet ./...
       - name: Build backend
-        run: go build -o /tmp/epay-server ./cmd/server
+        run: |
+          go build -o /tmp/epay-server ./cmd/server
+          go build -o /tmp/observer-pilot-preflight ./cmd/observer-pilot-preflight
       - name: Check observer protocol formatting
         run: |
-          gofmt -d pkg/observer internal/observerstore internal/observerhttp cmd/server internal/database/migrate.go
-          test -z "$(gofmt -l pkg/observer internal/observerstore internal/observerhttp cmd/server internal/database/migrate.go)"
+          gofmt -d pkg/observer internal/observerstore internal/observerhttp cmd/server cmd/observer-pilot-preflight internal/database/migrate.go
+          test -z "$(gofmt -l pkg/observer internal/observerstore internal/observerhttp cmd/server cmd/observer-pilot-preflight internal/database/migrate.go)"
       - name: Check reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
   frontend:
